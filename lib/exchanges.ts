@@ -1,0 +1,107 @@
+import type { Ev } from "./calc";
+
+const BIN = "https://fapi.binance.com";
+const DELTA = "https://api.india.delta.exchange";
+const DELTA_INTERVAL = Number(process.env.DELTA_FUNDING_INTERVAL_HOURS ?? 8);
+const DELTA_OFFSET = Number(process.env.DELTA_FUNDING_HOUR_OFFSET ?? 0);
+
+async function get(url: string): Promise<any> {
+  const r = await fetch(url, { cache: "no-store", headers: { "User-Agent": "funding-monitor/0.1", Accept: "application/json" } });
+  if (!r.ok) throw new Error(`${url} -> ${r.status} ${(await r.text()).slice(0, 200)}`);
+  return r.json();
+}
+
+/** "1000PEPE" -> { base: "PEPE", mult: 1000 } so Binance and Delta names line up. */
+export function normBase(raw: string) {
+  const m = /^(1000000|10000|1000)(.+)$/.exec(raw);
+  return m ? { base: m[2], mult: Number(m[1]) } : { base: raw, mult: 1 };
+}
+
+// ---------- Binance USDT-M ----------
+export async function binanceSymbols() {
+  const d = await get(`${BIN}/fapi/v1/exchangeInfo`);
+  return d.symbols
+    .filter((s: any) => s.contractType === "PERPETUAL" && s.quoteAsset === "USDT" && s.status === "TRADING")
+    .map((s: any) => ({ symbol: s.symbol as string, base: s.baseAsset as string }));
+}
+
+export async function binanceLive() {
+  const [pi, tk, fi] = await Promise.all([
+    get(`${BIN}/fapi/v1/premiumIndex`),
+    get(`${BIN}/fapi/v1/ticker/24hr`),
+    get(`${BIN}/fapi/v1/fundingInfo`).catch(() => []),
+  ]);
+  const vol = new Map<string, number>(tk.map((t: any) => [t.symbol, Number(t.quoteVolume)]));
+  const iv = new Map<string, number>(fi.map((f: any) => [f.symbol, Number(f.fundingIntervalHours)]));
+  const out = new Map<string, { rate: number; mark: number; vol: number; interval: number }>();
+  for (const p of pi) {
+    out.set(p.symbol, {
+      rate: Number(p.lastFundingRate), mark: Number(p.markPrice),
+      vol: vol.get(p.symbol) ?? 0, interval: iv.get(p.symbol) ?? 8,
+    });
+  }
+  return out;
+}
+
+export async function binanceHistory(symbol: string, startMs: number, interval: number): Promise<(Ev & { interval: number })[]> {
+  const out: (Ev & { interval: number })[] = [];
+  let cur = startMs;
+  for (let page = 0; page < 5; page++) { // 1000 records per page; 1h-interval symbols need 3 pages for 90 days
+    const d = await get(`${BIN}/fapi/v1/fundingRate?symbol=${symbol}&startTime=${cur}&limit=1000`);
+    for (const r of d) out.push({ ts: Number(r.fundingTime), rate: Number(r.fundingRate), interval });
+    if (d.length < 1000) break;
+    cur = Number(d[d.length - 1].fundingTime) + 1;
+  }
+  return out;
+}
+
+// ---------- Delta Exchange India ----------
+export async function deltaProducts() {
+  const d = await get(`${DELTA}/v2/products?contract_types=perpetual_futures`);
+  return (d.result as any[])
+    .filter((p) => p.state === "live" && p.contract_type === "perpetual_futures")
+    .map((p) => ({
+      symbol: p.symbol as string,
+      base: (p.underlying_asset?.symbol ?? "") as string,
+      quote: (p.quoting_asset?.symbol ?? "") as string,
+    }));
+}
+
+export async function deltaTickers() {
+  const d = await get(`${DELTA}/v2/tickers?contract_types=perpetual_futures`);
+  const out = new Map<string, { rate: number; mark: number; vol: number; oi: number }>();
+  for (const t of d.result as any[]) {
+    out.set(t.symbol, {
+      rate: Number(t.funding_rate) / 100, // Delta reports percent. Confirm via /api/debug/delta.
+      mark: Number(t.mark_price),
+      vol: Number(t.turnover_usd ?? 0),
+      oi: Number(t.oi_value_usd ?? 0),
+    });
+  }
+  return out;
+}
+
+/** Funding history from Delta's candle endpoint (FUNDING:<symbol>), 1h candles sampled at settlement hours. */
+export async function deltaHistory(symbol: string, startMs: number): Promise<(Ev & { interval: number })[]> {
+  const end = Math.floor(Date.now() / 1000);
+  const start = Math.floor(startMs / 1000);
+  const CHUNK = 60 * 86400; // candle endpoint caps results per request, so fetch in 60-day chunks
+  const candles: any[] = [];
+  for (let t = start; t < end; t += CHUNK) {
+    const d = await get(`${DELTA}/v2/history/candles?resolution=1h&symbol=FUNDING:${symbol}&start=${t}&end=${Math.min(t + CHUNK, end)}`);
+    candles.push(...(d.result as any[]));
+  }
+  return candles
+    .filter((c) => (Math.floor(c.time / 3600) % DELTA_INTERVAL) === DELTA_OFFSET)
+    .map((c) => ({ ts: c.time * 1000, rate: Number(c.close) / 100, interval: DELTA_INTERVAL }));
+}
+
+export async function deltaRaw(symbol: string) {
+  const end = Math.floor(Date.now() / 1000);
+  const start = end - 3 * 86400;
+  const [ticker, candles] = await Promise.all([
+    get(`${DELTA}/v2/tickers/${symbol}`),
+    get(`${DELTA}/v2/history/candles?resolution=1h&symbol=FUNDING:${symbol}&start=${start}&end=${end}`),
+  ]);
+  return { ticker: ticker.result, candles_sample: (candles.result as any[]).slice(-30) };
+}
