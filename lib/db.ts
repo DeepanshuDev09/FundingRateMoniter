@@ -36,4 +36,10 @@ export const SCHEMA = [
   `ALTER TABLE pair_stats ADD COLUMN IF NOT EXISTS days90 int`,
   `CREATE TABLE IF NOT EXISTS sync_state (base text PRIMARY KEY, last_synced_at timestamptz)`,
   `CREATE TABLE IF NOT EXISTS alert_log (base text PRIMARY KEY, sent_at timestamptz NOT NULL)`,
+  `ALTER TABLE sync_state ADD COLUMN IF NOT EXISTS backfill_days int`,
+  `CREATE TABLE IF NOT EXISTS pair_features (base text PRIMARY KEY, data jsonb NOT NULL, updated_at timestamptz DEFAULT now())`,
+  `CREATE TABLE IF NOT EXISTS wf_obs (
+     base text NOT NULL, fold int NOT NULL, m30 double precision, m90 double precision,
+     md90 double precision, cons double precision, fwd double precision, PRIMARY KEY (base, fold))`,
+  `CREATE TABLE IF NOT EXISTS wf_summary (id int PRIMARY KEY, data jsonb NOT NULL, updated_at timestamptz DEFAULT now())`,
 ];

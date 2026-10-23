@@ -1,5 +1,6 @@
 import { isAdmin } from "@/lib/auth";
 import { q, SCHEMA } from "@/lib/db";
+import { recChunk, recFinish, recInit } from "@/lib/recommend";
 import { refreshLive, refreshPairs, syncHistory } from "@/lib/sync";
 export const maxDuration = 60;
 export const dynamic = "force-dynamic";
@@ -18,6 +19,12 @@ export async function POST(req: Request) {
       return Response.json({ ok: true, pairs, since });
     }
     if (body.step === "batch") return Response.json({ ok: true, ...(await syncHistory(10, body.since)) });
+    if (body.step === "rec_init") {
+      for (const s of SCHEMA) await q(s);
+      return Response.json({ ok: true, ...(await recInit()) });
+    }
+    if (body.step === "rec_chunk") return Response.json({ ok: true, ...(await recChunk(body.bases)) });
+    if (body.step === "rec_finish") return Response.json({ ok: true, summary: await recFinish() });
     return Response.json({ error: "Unknown step" }, { status: 400 });
   } catch (e: any) {
     return Response.json({ error: String(e.message) }, { status: 500 });

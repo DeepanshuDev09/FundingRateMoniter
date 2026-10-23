@@ -67,9 +67,11 @@ async function syncOne(p: any) {
     `SELECT exchange, EXTRACT(EPOCH FROM MIN(ts))*1000 AS min_ms, EXTRACT(EPOCH FROM MAX(ts))*1000 AS max_ms
        FROM funding_history WHERE base=$1 GROUP BY exchange`, [p.base]);
   const lm = Object.fromEntries(last.map((r: any) => [r.exchange, { min: Number(r.min_ms), max: Number(r.max_ms) }]));
-  const from = Date.now() - 90 * DAY;
-  // Backfill the full 90 days if we don't have it yet (e.g. older 30-day data); otherwise only fetch what's new.
-  const startFor = (ex: string) => (lm[ex] && lm[ex].min <= from + 2 * DAY ? lm[ex].max + 1 : from);
+  const from = Date.now() - 365 * DAY;
+  // Backfill a full year once per pair (tracked in sync_state.backfill_days); after that only fetch what's new.
+  const [st] = await q(`SELECT backfill_days FROM sync_state WHERE base=$1`, [p.base]);
+  const full = (st?.backfill_days ?? 0) >= 365;
+  const startFor = (ex: string) => (full && lm[ex] ? lm[ex].max + 1 : from);
   const [bi] = await q(`SELECT b_interval FROM live_snapshot WHERE base=$1`, [p.base]);
 
   const [b, d] = await Promise.all([
@@ -89,7 +91,7 @@ async function syncOne(p: any) {
     );
   }
   await recomputeStats(p.base);
-  await q(`UPDATE sync_state SET last_synced_at=now() WHERE base=$1`, [p.base]);
+  await q(`UPDATE sync_state SET last_synced_at=now(), backfill_days=365 WHERE base=$1`, [p.base]);
   return rows.length;
 }
 

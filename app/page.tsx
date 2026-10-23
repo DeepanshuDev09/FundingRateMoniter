@@ -148,6 +148,7 @@ export default function Home() {
       <div className="status">
         <span>{rows.length} common pairs</span>
         <span>{synced} with history</span>
+        <Link href="/recommend">Long-term picks</Link>
         <Link href="/admin" className="muted">Admin</Link>
         {updated && <span>Page refreshed {new Date(updated).toLocaleTimeString()}</span>}
       </div>

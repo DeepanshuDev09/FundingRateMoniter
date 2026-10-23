@@ -7,7 +7,7 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 export default function Admin() {
   const [pw, setPw] = useState("");
   const [authed, setAuthed] = useState(false);
-  const [running, setRunning] = useState(false);
+  const [running, setRunning] = useState("");
   const [log, setLog] = useState<string[]>([]);
   const [progress, setProgress] = useState("");
   const [delay, setDelay] = useState(60);
@@ -26,32 +26,51 @@ export default function Admin() {
     catch (e: any) { add(e.message); }
   };
 
-  const run = async () => {
-    stop.current = false; setRunning(true); setLog([]);
+  const syncAll = async () => {
+    stop.current = false; setRunning("sync"); setLog([]);
     try {
       add("Updating pair list and live funding rates...");
       const init = await call({ step: "init" });
-      add(`${init.pairs} common pairs found. Syncing history, 10 pairs per batch.`);
+      add(`${init.pairs} common pairs found. Syncing history, 10 pairs per batch. The first run downloads a full year per pair.`);
       let done = 0;
       while (!stop.current) {
         const b = await call({ step: "batch", since: init.since });
         done += b.results.length;
-        const bad = b.results.filter((r: any) => !r.ok);
         add(`Synced ${b.results.map((r: any) => r.base).join(", ")}`);
-        bad.forEach((r: any) => add(`  failed ${r.base}: ${r.error}`));
+        b.results.filter((r: any) => !r.ok).forEach((r: any) => add(`  failed ${r.base}: ${r.error}`));
         setProgress(`${done} of ${init.pairs} pairs done, ${b.remaining} left`);
         if (b.remaining === 0 || b.results.length === 0) { add("All pairs synced. Users can see the new data now."); break; }
         for (let s = delay; s > 0 && !stop.current; s--) { setProgress(`${done} of ${init.pairs} pairs done. Next batch in ${s}s`); await sleep(1000); }
       }
-      if (stop.current) add("Stopped. Run again to continue; finished pairs are skipped only within one run.");
+      if (stop.current) add("Stopped. Run again to continue.");
     } catch (e: any) { add(`Error: ${e.message}`); }
-    setRunning(false);
+    setRunning("");
+  };
+
+  const analyze = async () => {
+    stop.current = false; setRunning("analyze"); setLog([]);
+    try {
+      add("Starting long-term analysis from the saved history (no exchange history calls except daily price candles).");
+      const { bases } = await call({ step: "rec_init" });
+      let done = 0, obs = 0;
+      for (let i = 0; i < bases.length && !stop.current; i += 20) {
+        const r = await call({ step: "rec_chunk", bases: bases.slice(i, i + 20) });
+        done += r.analyzed; obs += r.observations;
+        setProgress(`${Math.min(i + 20, bases.length)} of ${bases.length} pairs analysed`);
+      }
+      if (stop.current) { add("Stopped."); }
+      else {
+        const f = await call({ step: "rec_finish" });
+        add(`Done. ${done} pairs scored, ${obs} walk-forward observations, ${f.summary.folds} test dates. See /recommend.`);
+      }
+    } catch (e: any) { add(`Error: ${e.message}`); }
+    setRunning("");
   };
 
   return (
     <div className="wrap" style={{ maxWidth: 720 }}>
       <Link className="back" href="/">Back to pairs</Link>
-      <h1>Admin sync</h1>
+      <h1>Admin</h1>
       {!authed ? (
         <div className="box">
           <div className="fields" style={{ gridTemplateColumns: "1fr" }}>
@@ -64,14 +83,21 @@ export default function Admin() {
         </div>
       ) : (
         <div className="box">
-          <p className="sub">Updates the pair list and live rates, then downloads funding history for every pair, 10 pairs at a time, and saves it to the database. Keep this tab open while it runs.</p>
+          <h2>1. Sync funding data</h2>
+          <p className="sub">Updates the pair list and live rates, then downloads funding history for every pair, 10 at a time, and saves it. Keep this tab open while it runs.</p>
           <div className="bar">
             <label>Wait between batches
-              <select value={delay} onChange={(e) => setDelay(Number(e.target.value))} disabled={running}>
+              <select value={delay} onChange={(e) => setDelay(Number(e.target.value))} disabled={!!running}>
                 <option value={60}>60 seconds</option><option value={30}>30 seconds</option><option value={10}>10 seconds</option>
               </select>
             </label>
-            {!running ? <button onClick={run}>Sync all pairs</button> : <button onClick={() => (stop.current = true)}>Stop</button>}
+            <button onClick={syncAll} disabled={!!running}>Sync all pairs</button>
+          </div>
+          <h2 style={{ marginTop: 18 }}>2. Run long-term analysis</h2>
+          <p className="sub">Scores every pair for a 4-month hold and tests the ranking rules against past data. Run it after a sync. It takes about a minute.</p>
+          <div className="bar">
+            <button onClick={analyze} disabled={!!running}>Run recommendation analysis</button>
+            {running && <button onClick={() => (stop.current = true)}>Stop</button>}
           </div>
           {progress && <p><b>{progress}</b></p>}
           <div className="note" style={{ maxHeight: 300, overflow: "auto", whiteSpace: "pre-wrap" }}>{log.join("\n")}</div>

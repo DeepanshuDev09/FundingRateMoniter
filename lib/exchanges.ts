@@ -46,7 +46,7 @@ export async function binanceLive() {
 export async function binanceHistory(symbol: string, startMs: number, interval: number): Promise<(Ev & { interval: number })[]> {
   const out: (Ev & { interval: number })[] = [];
   let cur = startMs;
-  for (let page = 0; page < 5; page++) { // 1000 records per page; 1h-interval symbols need 3 pages for 90 days
+  for (let page = 0; page < 12; page++) { // 1000 records per page; 1h-interval symbols need about 9 pages for 365 days
     const d = await get(`${BIN}/fapi/v1/fundingRate?symbol=${symbol}&startTime=${cur}&limit=1000`);
     for (const r of d) out.push({ ts: Number(r.fundingTime), rate: Number(r.fundingRate), interval });
     if (d.length < 1000) break;
@@ -104,4 +104,18 @@ export async function deltaRaw(symbol: string) {
     get(`${DELTA}/v2/history/candles?resolution=1h&symbol=FUNDING:${symbol}&start=${start}&end=${end}`),
   ]);
   return { ticker: ticker.result, candles_sample: (candles.result as any[]).slice(-30) };
+}
+
+/** Largest price move (up or down) seen inside any 120-day window over the last year, from daily candles. */
+export async function binanceWorstMove(symbol: string, window = 120): Promise<number> {
+  const d = await get(`${BIN}/fapi/v1/klines?symbol=${symbol}&interval=1d&limit=365`);
+  const hi = d.map((k: any) => Number(k[2])), lo = d.map((k: any) => Number(k[3])), cl = d.map((k: any) => Number(k[4]));
+  let worst = 0;
+  for (let i = 0; i < d.length; i++) {
+    let mx = 0, mn = Infinity;
+    for (let j = i + 1; j < Math.min(d.length, i + 1 + window); j++) { mx = Math.max(mx, hi[j]); mn = Math.min(mn, lo[j]); }
+    if (mn === Infinity) continue;
+    worst = Math.max(worst, mx / cl[i] - 1, 1 - mn / cl[i]);
+  }
+  return worst;
 }
