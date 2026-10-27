@@ -23,7 +23,6 @@ const median = (a: number[]) => {
 const nn = (a: (number | null)[]) => a.filter((x): x is number => x !== null);
 const roundTripFee = () => 2 * (Number(process.env.TAKER_FEE_BINANCE ?? 0.0005) + Number(process.env.TAKER_FEE_DELTA ?? 0.0005));
 const slipPerLeg = (vol: number | null) => (vol == null ? 0.002 : vol >= 1e8 ? 0.0001 : vol >= 1e7 ? 0.0003 : vol >= 1e6 ? 0.0008 : 0.002);
-const minVolume = () => Number(process.env.REC_MIN_VOLUME_USD ?? 1e6);
 const rounded = (v: number) => Math.round(v * 1e6) / 1e6;
 
 function rng(seed: number) { // deterministic, so results don't change between runs on the same data
@@ -119,13 +118,11 @@ export function analyzePair(base: string, arr: (number | null)[], volume: number
   const retCap = p50 * (365 / HORIZON) * (lev / 2); // capital = 2 x notional / leverage
 
   const reasons: string[] = [], flags: string[] = [];
-  if (volume == null) reasons.push("No live market data");
-  else if (volume < minVolume()) reasons.push("Trading volume too low");
   if (spike > 0.6) reasons.push("Profit comes from a few spike days");
   if (expected <= 0) reasons.push("No positive expected spread");
   if (basis != null && Math.abs(basis) > 0.005) flags.push("Wide price gap between exchanges");
   if (flips > 30) flags.push("Spread flips sign often");
-  if (volume != null && volume < 1e7) flags.push("Thin liquidity");
+  if (volume != null && volume < 1e6) flags.push("Very thin liquidity");
   if (spike > 0.4) flags.push("Spike-heavy");
   if (maxMove == null) flags.push("No price history for margin check");
 
@@ -244,6 +241,6 @@ export async function getRecommendations() {
     excluded: all.filter((x: any) => !x.eligible).map(strip),
     validation: sum_?.data ?? null,
     as_of: rows.length ? rows.reduce((m: any, r: any) => (r.updated_at > m ? r.updated_at : m), rows[0].updated_at) : null,
-    settings: { horizon: HORIZON, lookback: LOOKBACK, shrink: SHRINK, min_volume: minVolume() },
+    settings: { horizon: HORIZON, lookback: LOOKBACK, shrink: SHRINK },
   };
 }
