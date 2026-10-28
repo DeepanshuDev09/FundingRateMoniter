@@ -9,7 +9,10 @@ export const usd = (v: number | null | undefined) => {
 };
 export const cls = (v: number | null | undefined) => (v == null ? "" : v >= 0 ? "gain" : "loss");
 export const dirLabel = (d: string | null | undefined) =>
-  d === "SHORT_BINANCE_LONG_DELTA" ? "Short Binance / Long Delta" : d === "LONG_BINANCE_SHORT_DELTA" ? "Long Binance / Short Delta" : "-";
+  d === "SHORT_BINANCE_LONG_DELTA" ? "Short Binance / Long Delta"
+  : d === "LONG_BINANCE_SHORT_DELTA" ? "Long Binance / Short Delta"
+  : d === "SHORT_COINDCX_LONG_DELTA" ? "Short CoinDCX / Long Delta"
+  : d === "LONG_COINDCX_SHORT_DELTA" ? "Long CoinDCX / Short Delta" : "-";
 export function freshness(ts: string | null | undefined) {
   if (!ts) return { c: "r", t: "never synced" };
   const mins = (Date.now() - new Date(ts).getTime()) / 60000;

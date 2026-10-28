@@ -14,17 +14,14 @@ export async function getPairs() {
     const bd = perDay(r.b_rate, r.b_interval), dd = perDay(r.d_rate, r.d_interval);
     const cd = perDay(r.c_rate, r.c_interval ?? 8);
     const live = bd != null && dd != null ? bd - dd : null;
-    // Best live hedge across all three: short the exchange paying the most, long the one paying the least
-    const opts = [["Binance", bd], ["Delta", dd], ["CoinDCX", cd]].filter((o): o is [string, number] => o[1] != null);
-    const hi = opts.length >= 2 ? opts.reduce((a, b) => (b[1] > a[1] ? b : a)) : null;
-    const lo = opts.length >= 2 ? opts.reduce((a, b) => (b[1] < a[1] ? b : a)) : null;
     const basis = r.b_mark && r.d_mark ? (r.d_mark / r.d_mult) / (r.b_mark / r.b_mult) - 1 : null;
     return {
       ...r,
       c_apr: cd == null ? null : cd * 365,
-      best_apr: hi && lo ? (hi[1] - lo[1]) * 365 : null,
-      best_short: hi ? hi[0] : null,
-      best_long: lo ? lo[0] : null,
+      d_apr: dd == null ? null : dd * 365,
+      dcx_apr: cd != null && dd != null ? Math.abs(cd - dd) * 365 : null,
+      dcx_direction: cd != null && dd != null ? (cd >= dd ? "SHORT_COINDCX_LONG_DELTA" : "LONG_COINDCX_SHORT_DELTA") : null,
+      dcx_basis: r.c_mark && r.d_mark ? r.d_mark / r.d_mult / (r.c_mark / r.b_mult) - 1 : null,
       live_apr: live == null ? null : Math.abs(live) * 365,
       live_direction: live == null ? null : live >= 0 ? "SHORT_BINANCE_LONG_DELTA" : "LONG_BINANCE_SHORT_DELTA",
       basis,

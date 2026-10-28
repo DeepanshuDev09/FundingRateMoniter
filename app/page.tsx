@@ -8,9 +8,6 @@ const CACHE_KEY = "pairs-cache-v1";
 
 const COLS: { key: string; label: string; num?: boolean; get: (r: Row) => any; render: (r: Row) => React.ReactNode }[] = [
   { key: "live_apr", label: "Now (APR)", num: true, get: (r) => r.live_apr, render: (r) => <span className="gain">{pct(r.live_apr, 0)}</span> },
-  { key: "best_apr", label: "Best now (3 exchanges)", num: true, get: (r) => r.best_apr,
-    render: (r) => r.best_apr == null ? "-" : (<span><span className="gain">{pct(r.best_apr, 0)}</span><br /><span className="muted" style={{ fontSize: 12 }}>short {r.best_short} / long {r.best_long}</span></span>) },
-  { key: "c_apr", label: "CoinDCX funding (APR)", num: true, get: (r) => r.c_apr, render: (r) => signedPct(r.c_apr, 0) },
   { key: "ret7", label: "7d", num: true, get: (r) => r.ret7, render: (r) => <span className={cls(r.ret7)}>{signedPct(r.ret7)}</span> },
   { key: "ret30", label: "30d gross", num: true, get: (r) => r.ret30, render: (r) => <span className={cls(r.ret30)}>{signedPct(r.ret30)}</span> },
   { key: "net30", label: "30d net", num: true, get: (r) => r.net30, render: (r) => <span className={cls(r.net30)}>{signedPct(r.net30)}</span> },
@@ -36,6 +33,7 @@ export default function Home() {
   const [onlyWatch, setOnlyWatch] = useState(false);
   const [watch, setWatch] = useState<string[]>([]);
   const [sort, setSort] = useState({ key: "net30", dir: -1 });
+  const [tab, setTab] = useState<"bd" | "cd">("bd");
 
   // Browser cache: show last data instantly, then refresh from the API every minute.
   useEffect(() => {
@@ -87,9 +85,12 @@ export default function Home() {
       <p className="sub">
         Funding earned by holding opposite perpetual positions on Delta Exchange India and Binance Futures.
         Returns are on one leg&apos;s notional, before slippage and basis moves; net subtracts four taker fees.
-        &ldquo;Best now&rdquo; compares live funding on Binance, Delta and CoinDCX. The 7d, 30d and 3-month columns use Binance and Delta only,
-        because CoinDCX does not publish funding history.
       </p>
+
+      <div className="tabs" role="tablist">
+        <button role="tab" aria-selected={tab === "bd"} className={tab === "bd" ? "tab on" : "tab"} onClick={() => setTab("bd")}>Binance ↔ Delta</button>
+        <button role="tab" aria-selected={tab === "cd"} className={tab === "cd" ? "tab on" : "tab"} onClick={() => setTab("cd")}>CoinDCX ↔ Delta</button>
+      </div>
 
       <div className="bar">
         <label>Search<input value={q} onChange={(e) => setQ(e.target.value)} placeholder="BTC, ETH..." /></label>
@@ -99,18 +100,20 @@ export default function Home() {
             <option value={1e7}>$10M</option><option value={1e8}>$100M</option>
           </select>
         </label>
-        <label>Min positive days
+        {tab === "bd" && <label>Min positive days
           <select value={minCons} onChange={(e) => setMinCons(Number(e.target.value))}>
             <option value={0}>Any</option><option value={0.5}>50%</option><option value={0.7}>70%</option><option value={0.9}>90%</option>
           </select>
-        </label>
-        <label className="check"><input type="checkbox" checked={onlyNet} onChange={(e) => setOnlyNet(e.target.checked)} />Net positive only</label>
+        </label>}
+        {tab === "bd" && <label className="check"><input type="checkbox" checked={onlyNet} onChange={(e) => setOnlyNet(e.target.checked)} />Net positive only</label>}
         <label className="check"><input type="checkbox" checked={onlyWatch} onChange={(e) => setOnlyWatch(e.target.checked)} />Watchlist only</label>
-        <a href="/api/export"><button type="button">Download CSV</button></a>
+        {tab === "bd" && <a href="/api/export"><button type="button">Download CSV</button></a>}
       </div>
 
       {error && <div className="err"><b>Couldn&apos;t load data.</b> {error}. If this is a fresh deploy, run the setup call from the README.</div>}
 
+      {tab === "bd" ? (
+        <>
       <div className="tablebox">
         <table>
           <thead>
@@ -150,6 +153,11 @@ export default function Home() {
         </table>
       </div>
 
+        </>
+      ) : (
+        <CoinDcxTable rows={rows} q={q} minVol={minVol} onlyWatch={onlyWatch} watch={watch} toggle={toggle} loading={loading} />
+      )}
+
       <div className="status">
         <span>{rows.length} common pairs</span>
         <span>{synced} with history</span>
@@ -162,5 +170,76 @@ export default function Home() {
         Basis is Delta mark price versus Binance mark price; a wide gap can erase funding gains when you close.
       </p>
     </div>
+  );
+}
+
+const DCX_COLS: { key: string; label: string; get: (r: Row) => any; render: (r: Row) => React.ReactNode }[] = [
+  { key: "dcx_apr", label: "Spread now (APR)", get: (r) => r.dcx_apr, render: (r) => <span className="gain">{pct(r.dcx_apr, 0)}</span> },
+  { key: "c_apr", label: "CoinDCX funding (APR)", get: (r) => r.c_apr, render: (r) => signedPct(r.c_apr, 0) },
+  { key: "d_apr", label: "Delta funding (APR)", get: (r) => r.d_apr, render: (r) => signedPct(r.d_apr, 0) },
+  { key: "c_interval", label: "CoinDCX interval", get: (r) => r.c_interval, render: (r) => (r.c_interval ? `${r.c_interval}h` : "-") },
+  { key: "d_interval", label: "Delta interval", get: (r) => r.d_interval, render: (r) => (r.d_interval ? `${r.d_interval}h` : "-") },
+  { key: "dcx_basis", label: "Basis (Delta vs CoinDCX)", get: (r) => r.dcx_basis, render: (r) => signedPct(r.dcx_basis) },
+  { key: "d_vol", label: "Delta 24h vol", get: (r) => r.d_vol, render: (r) => usd(r.d_vol) },
+  { key: "d_oi", label: "Delta open interest", get: (r) => r.d_oi, render: (r) => usd(r.d_oi) },
+];
+
+function CoinDcxTable({ rows, q, minVol, onlyWatch, watch, toggle, loading }: {
+  rows: Row[]; q: string; minVol: number; onlyWatch: boolean; watch: string[]; toggle: (b: string) => void; loading: boolean;
+}) {
+  const [sort, setSort] = useState({ key: "dcx_apr", dir: -1 });
+  const listed = useMemo(() => rows.filter((r) => r.c_rate != null && r.d_rate != null), [rows]);
+  const shown = useMemo(() => {
+    const col = DCX_COLS.find((c) => c.key === sort.key)!;
+    return listed
+      .filter((r) => r.base.toLowerCase().includes(q.toLowerCase()))
+      .filter((r) => (r.d_vol ?? 0) >= minVol)
+      .filter((r) => !onlyWatch || watch.includes(r.base))
+      .sort((a, b) => {
+        if (sort.key === "base") return a.base.localeCompare(b.base) * sort.dir;
+        const x = col.get(a), y = col.get(b);
+        if (x == null) return 1; if (y == null) return -1;
+        return (x - y) * sort.dir;
+      });
+  }, [listed, q, minVol, onlyWatch, watch, sort]);
+
+  return (
+    <>
+      <p className="note" style={{ margin: "0 0 10px" }}>
+        Live funding only: CoinDCX publishes no funding history, so there are no 7d, 30d or 3-month figures here. Rates update each time an admin sync runs.
+        Volume filter uses Delta&apos;s 24h volume.
+      </p>
+      <div className="tablebox">
+        <table style={{ minWidth: 900 }}>
+          <thead>
+            <tr>
+              <th aria-label="Watchlist" />
+              <th onClick={() => setSort({ key: "base", dir: sort.key === "base" ? -sort.dir : 1 })}>Pair</th>
+              <th>Direction now</th>
+              {DCX_COLS.map((c) => (
+                <th key={c.key} className="num" onClick={() => setSort((s) => ({ key: c.key, dir: s.key === c.key ? -s.dir : -1 }))}>
+                  {c.label}{sort.key === c.key ? (sort.dir === -1 ? " ▾" : " ▴") : ""}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {shown.map((r) => (
+              <tr key={r.base}>
+                <td><button className={`star ${watch.includes(r.base) ? "on" : ""}`} onClick={() => toggle(r.base)} aria-label={`Watch ${r.base}`}>{watch.includes(r.base) ? "★" : "☆"}</button></td>
+                <td><Link className="pairname" href={`/pair/${r.base}`}>{r.base}</Link></td>
+                <td className="dir">{dirLabel(r.dcx_direction)}</td>
+                {DCX_COLS.map((c) => <td key={c.key} className="num">{c.render(r)}</td>)}
+              </tr>
+            ))}
+            {!shown.length && (
+              <tr><td colSpan={DCX_COLS.length + 3} className="empty">
+                {loading ? "Loading pairs..." : listed.length ? "No pairs match these filters." : "No CoinDCX data yet. Run Sync all pairs in Admin, then check /api/debug/coindcx if this stays empty."}
+              </td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </>
   );
 }
