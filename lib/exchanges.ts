@@ -119,3 +119,38 @@ export async function binanceWorstMove(symbol: string, window = 120): Promise<nu
   }
   return worst;
 }
+
+// ---------- CoinDCX futures (live funding only: no public funding-history endpoint is documented) ----------
+const DCX_API = "https://api.coindcx.com";
+const DCX_PUB = "https://public.coindcx.com";
+const DCX_DEFAULT_HOURS = Number(process.env.COINDCX_FUNDING_INTERVAL_HOURS ?? 8);
+
+/** Current funding ("fr") and mark price for every CoinDCX USDT futures pair, keyed by pair e.g. "B-BTC_USDT". */
+export async function coindcxPrices() {
+  const j = await get(`${DCX_PUB}/market_data/v3/current_prices/futures/rt`);
+  const src = j?.prices ?? j;
+  const out = new Map<string, { rate: number; mark: number }>();
+  for (const [pair, v] of Object.entries<any>(src ?? {})) {
+    if (!v || typeof v !== "object" || !/^B-.+_USDT$/.test(pair)) continue;
+    const rate = Number(v.fr);
+    if (!Number.isFinite(rate)) continue;
+    out.set(pair, { rate, mark: Number(v.mp ?? v.ls ?? 0) });
+  }
+  return out;
+}
+
+export async function coindcxFundingHours(pair: string): Promise<number> {
+  try {
+    const d = await get(`${DCX_API}/exchange/v1/derivatives/futures/data/instrument?pair=${pair}&margin_currency_short_name=USDT`);
+    const f = Number(d?.instrument?.funding_frequency);
+    return f > 0 ? f : DCX_DEFAULT_HOURS;
+  } catch { return DCX_DEFAULT_HOURS; }
+}
+
+export async function coindcxRaw(pair = "B-BTC_USDT") {
+  const j = await get(`${DCX_PUB}/market_data/v3/current_prices/futures/rt`);
+  const src = j?.prices ?? j;
+  const keys = Object.keys(src ?? {});
+  const hours = await coindcxFundingHours(pair);
+  return { top_level_keys: Object.keys(j ?? {}).slice(0, 10), pair_count: keys.length, sample_pair: pair, sample: src?.[pair], funding_hours_used: hours };
+}

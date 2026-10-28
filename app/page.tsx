@@ -8,6 +8,9 @@ const CACHE_KEY = "pairs-cache-v1";
 
 const COLS: { key: string; label: string; num?: boolean; get: (r: Row) => any; render: (r: Row) => React.ReactNode }[] = [
   { key: "live_apr", label: "Now (APR)", num: true, get: (r) => r.live_apr, render: (r) => <span className="gain">{pct(r.live_apr, 0)}</span> },
+  { key: "best_apr", label: "Best now (3 exchanges)", num: true, get: (r) => r.best_apr,
+    render: (r) => r.best_apr == null ? "-" : (<span><span className="gain">{pct(r.best_apr, 0)}</span><br /><span className="muted" style={{ fontSize: 12 }}>short {r.best_short} / long {r.best_long}</span></span>) },
+  { key: "c_apr", label: "CoinDCX funding (APR)", num: true, get: (r) => r.c_apr, render: (r) => signedPct(r.c_apr, 0) },
   { key: "ret7", label: "7d", num: true, get: (r) => r.ret7, render: (r) => <span className={cls(r.ret7)}>{signedPct(r.ret7)}</span> },
   { key: "ret30", label: "30d gross", num: true, get: (r) => r.ret30, render: (r) => <span className={cls(r.ret30)}>{signedPct(r.ret30)}</span> },
   { key: "net30", label: "30d net", num: true, get: (r) => r.net30, render: (r) => <span className={cls(r.net30)}>{signedPct(r.net30)}</span> },
@@ -84,6 +87,8 @@ export default function Home() {
       <p className="sub">
         Funding earned by holding opposite perpetual positions on Delta Exchange India and Binance Futures.
         Returns are on one leg&apos;s notional, before slippage and basis moves; net subtracts four taker fees.
+        &ldquo;Best now&rdquo; compares live funding on Binance, Delta and CoinDCX. The 7d, 30d and 3-month columns use Binance and Delta only,
+        because CoinDCX does not publish funding history.
       </p>
 
       <div className="bar">

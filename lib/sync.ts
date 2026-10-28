@@ -1,6 +1,6 @@
 import { q } from "./db";
 import { analyze } from "./calc";
-import { binanceHistory, binanceLive, binanceSymbols, deltaHistory, deltaProducts, deltaTickers, normBase } from "./exchanges";
+import { binanceHistory, binanceLive, binanceSymbols, coindcxFundingHours, coindcxPrices, deltaHistory, deltaProducts, deltaTickers, normBase } from "./exchanges";
 
 const DAY = 86400000;
 const feeRoundTrip = () =>
@@ -22,12 +22,27 @@ export async function refreshPairs() {
     if (!chosen.has(n.base) || p.quote === "USD") chosen.set(n.base, row);
   }
   const rows = [...chosen.values()];
+
+  // CoinDCX: match its USDT futures to the same base asset. If CoinDCX is unreachable, carry on without it.
+  try {
+    const dcx = await coindcxPrices();
+    const byBase = new Map<string, string>();
+    for (const pair of dcx.keys()) {
+      const m = /^B-(.+)_USDT$/.exec(pair);
+      if (m) byBase.set(normBase(m[1]).base, pair);
+    }
+    for (const r of rows) r.coindcx_pair = byBase.get(r.base) ?? null;
+    const withDcx = rows.filter((r) => r.coindcx_pair);
+    for (let i = 0; i < withDcx.length; i += 10) // gentle: 10 lookups at a time
+      await Promise.all(withDcx.slice(i, i + 10).map(async (r) => { r.c_interval = await coindcxFundingHours(r.coindcx_pair); }));
+  } catch { /* leave CoinDCX columns empty */ }
+
   await q(
-    `INSERT INTO pair_map(base,binance_symbol,delta_symbol,b_mult,d_mult,active)
-     SELECT base,binance_symbol,delta_symbol,b_mult,d_mult,true
-     FROM jsonb_to_recordset($1::jsonb) AS x(base text,binance_symbol text,delta_symbol text,b_mult real,d_mult real)
+    `INSERT INTO pair_map(base,binance_symbol,delta_symbol,b_mult,d_mult,coindcx_pair,c_interval,active)
+     SELECT base,binance_symbol,delta_symbol,b_mult,d_mult,coindcx_pair,c_interval,true
+     FROM jsonb_to_recordset($1::jsonb) AS x(base text,binance_symbol text,delta_symbol text,b_mult real,d_mult real,coindcx_pair text,c_interval real)
      ON CONFLICT (base) DO UPDATE SET binance_symbol=EXCLUDED.binance_symbol, delta_symbol=EXCLUDED.delta_symbol,
-       b_mult=EXCLUDED.b_mult, d_mult=EXCLUDED.d_mult, active=true`,
+       b_mult=EXCLUDED.b_mult, d_mult=EXCLUDED.d_mult, coindcx_pair=EXCLUDED.coindcx_pair, c_interval=EXCLUDED.c_interval, active=true`,
     [JSON.stringify(rows)],
   );
   await q(`UPDATE pair_map SET active=false WHERE NOT (base = ANY($1::text[]))`, [rows.map((r) => r.base)]);
@@ -37,26 +52,28 @@ export async function refreshPairs() {
 
 /** One bulk call per exchange -> live rate, mark price, volume for every common pair. */
 export async function refreshLive() {
-  const pairs = await q(`SELECT base,binance_symbol,delta_symbol FROM pair_map WHERE active`);
-  const [bl, dl] = await Promise.all([binanceLive(), deltaTickers()]);
+  const pairs = await q(`SELECT base,binance_symbol,delta_symbol,coindcx_pair FROM pair_map WHERE active`);
+  const [bl, dl, cl] = await Promise.all([binanceLive(), deltaTickers(), coindcxPrices().catch(() => new Map())]);
   const dInterval = Number(process.env.DELTA_FUNDING_INTERVAL_HOURS ?? 8);
   const rows: any[] = [];
   for (const p of pairs) {
     const b = bl.get(p.binance_symbol), d = dl.get(p.delta_symbol);
     if (!b || !d) continue;
+    const c = p.coindcx_pair ? cl.get(p.coindcx_pair) : null;
     rows.push({
       base: p.base, b_rate: b.rate, d_rate: d.rate, b_interval: b.interval, d_interval: dInterval,
       b_mark: b.mark, d_mark: d.mark, b_vol: b.vol, d_vol: d.vol, d_oi: d.oi,
+      c_rate: c ? c.rate : null, c_mark: c ? c.mark : null,
     });
   }
   await q(
-    `INSERT INTO live_snapshot(base,b_rate,d_rate,b_interval,d_interval,b_mark,d_mark,b_vol,d_vol,d_oi,ts)
-     SELECT base,b_rate,d_rate,b_interval,d_interval,b_mark,d_mark,b_vol,d_vol,d_oi,now()
+    `INSERT INTO live_snapshot(base,b_rate,d_rate,b_interval,d_interval,b_mark,d_mark,b_vol,d_vol,d_oi,c_rate,c_mark,ts)
+     SELECT base,b_rate,d_rate,b_interval,d_interval,b_mark,d_mark,b_vol,d_vol,d_oi,c_rate,c_mark,now()
      FROM jsonb_to_recordset($1::jsonb) AS x(base text,b_rate float8,d_rate float8,b_interval real,d_interval real,
-       b_mark float8,d_mark float8,b_vol float8,d_vol float8,d_oi float8)
+       b_mark float8,d_mark float8,b_vol float8,d_vol float8,d_oi float8,c_rate float8,c_mark float8)
      ON CONFLICT (base) DO UPDATE SET b_rate=EXCLUDED.b_rate,d_rate=EXCLUDED.d_rate,b_interval=EXCLUDED.b_interval,
        d_interval=EXCLUDED.d_interval,b_mark=EXCLUDED.b_mark,d_mark=EXCLUDED.d_mark,b_vol=EXCLUDED.b_vol,
-       d_vol=EXCLUDED.d_vol,d_oi=EXCLUDED.d_oi,ts=now()`,
+       d_vol=EXCLUDED.d_vol,d_oi=EXCLUDED.d_oi,c_rate=EXCLUDED.c_rate,c_mark=EXCLUDED.c_mark,ts=now()`,
     [JSON.stringify(rows)],
   );
   return rows.length;

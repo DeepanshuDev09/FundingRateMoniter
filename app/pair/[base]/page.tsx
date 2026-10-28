@@ -64,7 +64,9 @@ export default function PairPage({ params }: { params: Promise<{ base: string }>
           <h2>Right now</h2>
           <div className="row"><span>Binance funding / interval</span><span className="num">{bFund == null ? "-" : `${bFund.toFixed(4)}% / ${p.b_interval}h`}</span></div>
           <div className="row"><span>Delta funding / interval</span><span className="num">{dFund == null ? "-" : `${dFund.toFixed(4)}% / ${p.d_interval}h`}</span></div>
-          <div className="row"><span>Current spread (APR)</span><span className="num gain">{pct(p.live_apr, 0)}</span></div>
+          <div className="row"><span>CoinDCX funding / interval</span><span className="num">{p.c_rate == null ? "not listed" : `${(p.c_rate * 100).toFixed(4)}% / ${p.c_interval ?? 8}h`}</span></div>
+          <div className="row"><span>Best live hedge (3 exchanges)</span><span className="num gain">{p.best_apr == null ? "-" : `${pct(p.best_apr, 0)}: short ${p.best_short}, long ${p.best_long}`}</span></div>
+          <div className="row"><span>Current spread, Binance vs Delta (APR)</span><span className="num gain">{pct(p.live_apr, 0)}</span></div>
           <div className="row"><span>Current best direction</span><span>{dirLabel(p.live_direction)}</span></div>
           <div className="row"><span>Binance mark price</span><span className="num">{p.b_mark ? (p.b_mark / p.b_mult).toPrecision(6) : "-"}</span></div>
           <div className="row"><span>Delta mark price</span><span className="num">{p.d_mark ? (p.d_mark / p.d_mult).toPrecision(6) : "-"}</span></div>
