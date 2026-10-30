@@ -19,11 +19,13 @@ export function dailySpread(b: Ev[], d: Ev[]) {
 
 export const DIR_A = "SHORT_BINANCE_LONG_DELTA";
 export const DIR_B = "LONG_BINANCE_SHORT_DELTA";
+export const BYBIT_DIR_A = "SHORT_BINANCE_LONG_BYBIT";
+export const BYBIT_DIR_B = "LONG_BINANCE_SHORT_BYBIT";
 
 /** Short the exchange paying less, long the other. Positive funding: longs pay shorts.
  *  Short Binance + Long Delta earns (binanceFunding - deltaFunding).
  *  Direction is chosen from the last 30 days; the 90-day figure holds that same direction. */
-export function analyze(b: Ev[], d: Ev[], roundTripFee: number) {
+export function analyze(b: Ev[], d: Ev[], roundTripFee: number, directions = [DIR_A, DIR_B]) {
   const rows = dailySpread(b, d);
   if (rows.length < 3) return null;
   const recent = rows.slice(-30);
@@ -40,7 +42,7 @@ export function analyze(b: Ev[], d: Ev[], roundTripFee: number) {
   }
   const last3 = s.slice(-3);
   return {
-    direction: sign === 1 ? DIR_A : DIR_B,
+    direction: sign === 1 ? directions[0] : directions[1],
     days: n,
     days90: all.length,
     ret30: sum(s),
@@ -58,15 +60,15 @@ export function analyze(b: Ev[], d: Ev[], roundTripFee: number) {
   };
 }
 
-export function chartSeries(b: Ev[], d: Ev[], direction: string) {
-  const sign = direction === DIR_B ? -1 : 1;
+export function chartSeries(b: Ev[], d: Ev[], direction: string, labels = ["binance", "delta"]) {
+  const sign = direction === DIR_B || direction === BYBIT_DIR_B ? -1 : 1;
   let cum = 0;
   return dailySpread(b, d).map((r) => {
     const earn = r.spread * sign;
     cum += earn;
     return {
       date: new Date(r.day).toISOString().slice(5, 10),
-      binance: r.b * 100, delta: r.d * 100, // % per day
+      [labels[0]]: r.b * 100, [labels[1]]: r.d * 100, // % per day
       earn: earn * 100, cumulative: cum * 100,
     };
   });

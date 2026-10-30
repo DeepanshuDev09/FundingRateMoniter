@@ -33,7 +33,7 @@ export default function Home() {
   const [onlyWatch, setOnlyWatch] = useState(false);
   const [watch, setWatch] = useState<string[]>([]);
   const [sort, setSort] = useState({ key: "net30", dir: -1 });
-  const [tab, setTab] = useState<"bd" | "cd">("bd");
+  const [tab, setTab] = useState<"bd" | "cd" | "by">("bd");
 
   // Browser cache: show last data instantly, then refresh from the API every minute.
   useEffect(() => {
@@ -65,6 +65,7 @@ export default function Home() {
   const shown = useMemo(() => {
     const col = COLS.find((c) => c.key === sort.key)!;
     return rows
+      .filter((r) => tab !== "bd" || r.delta_symbol)
       .filter((r) => r.base.toLowerCase().includes(q.toLowerCase()))
       .filter((r) => (r.volume ?? 0) >= minVol)
       .filter((r) => (r.consistency ?? 0) >= minCons)
@@ -75,7 +76,7 @@ export default function Home() {
         if (x == null) return 1; if (y == null) return -1;
         return (x - y) * sort.dir;
       });
-  }, [rows, q, minVol, minCons, onlyNet, onlyWatch, watch, sort]);
+  }, [rows, q, minVol, minCons, onlyNet, onlyWatch, watch, sort, tab]);
 
   const synced = rows.filter((r) => r.last_synced_at).length;
 
@@ -89,6 +90,7 @@ export default function Home() {
 
       <div className="tabs" role="tablist">
         <button role="tab" aria-selected={tab === "bd"} className={tab === "bd" ? "tab on" : "tab"} onClick={() => setTab("bd")}>Binance ↔ Delta</button>
+        <button role="tab" aria-selected={tab === "by"} className={tab === "by" ? "tab on" : "tab"} onClick={() => setTab("by")}>Binance ↔ Bybit</button>
         <button role="tab" aria-selected={tab === "cd"} className={tab === "cd" ? "tab on" : "tab"} onClick={() => setTab("cd")}>CoinDCX ↔ Delta</button>
       </div>
 
@@ -154,6 +156,8 @@ export default function Home() {
       </div>
 
         </>
+      ) : tab === "by" ? (
+        <BybitTable rows={rows} q={q} minVol={minVol} onlyWatch={onlyWatch} watch={watch} toggle={toggle} loading={loading} />
       ) : (
         <CoinDcxTable rows={rows} q={q} minVol={minVol} onlyWatch={onlyWatch} watch={watch} toggle={toggle} loading={loading} />
       )}
@@ -183,6 +187,30 @@ const DCX_COLS: { key: string; label: string; get: (r: Row) => any; render: (r: 
   { key: "d_vol", label: "Delta 24h vol", get: (r) => r.d_vol, render: (r) => usd(r.d_vol) },
   { key: "d_oi", label: "Delta open interest", get: (r) => r.d_oi, render: (r) => usd(r.d_oi) },
 ];
+
+const BYBIT_COLS: { key: string; label: string; get: (r: Row) => any; render: (r: Row) => React.ReactNode }[] = [
+  { key: "y_live_apr", label: "Now (APR)", get: r => r.y_live_apr, render: r => <span className="gain">{pct(r.y_live_apr, 0)}</span> },
+  { key: "y_ret7", label: "7d", get: r => r.y_ret7, render: r => <span className={cls(r.y_ret7)}>{signedPct(r.y_ret7)}</span> },
+  { key: "y_net30", label: "30d net", get: r => r.y_net30, render: r => <span className={cls(r.y_net30)}>{signedPct(r.y_net30)}</span> },
+  { key: "y_net90", label: "3-mo net", get: r => r.y_net90, render: r => <span className={cls(r.y_net90)}>{signedPct(r.y_net90)}</span> },
+  { key: "y_apr", label: "30d APR", get: r => r.y_apr, render: r => pct(r.y_apr, 0) },
+  { key: "y_consistency", label: "Positive days", get: r => r.y_consistency, render: r => pct(r.y_consistency, 0) },
+  { key: "y_basis", label: "Basis", get: r => r.y_basis, render: r => signedPct(r.y_basis) },
+  { key: "y_volume", label: "Min 24h vol", get: r => r.y_volume, render: r => usd(r.y_volume) },
+];
+
+function BybitTable({ rows, q, minVol, onlyWatch, watch, toggle, loading }: { rows: Row[]; q: string; minVol: number; onlyWatch: boolean; watch: string[]; toggle: (b: string) => void; loading: boolean }) {
+  const [sort, setSort] = useState({ key: "y_net30", dir: -1 });
+  const shown = useMemo(() => {
+    const col = BYBIT_COLS.find(c => c.key === sort.key)!;
+    return rows.filter(r => r.bybit_symbol && r.y_rate != null && r.base.toLowerCase().includes(q.toLowerCase()))
+      .filter(r => (r.y_volume ?? 0) >= minVol).filter(r => !onlyWatch || watch.includes(r.base)).sort((a, b) => {
+        if (sort.key === "base") return a.base.localeCompare(b.base) * sort.dir;
+        const x = col.get(a), y = col.get(b); if (x == null) return 1; if (y == null) return -1; return (x - y) * sort.dir;
+      });
+  }, [rows, q, minVol, onlyWatch, watch, sort]);
+  return <><p className="note" style={{ margin: "0 0 10px" }}>Historical and live funding spreads between Binance USDT-M and Bybit linear USDT perpetuals. Basis is Bybit mark price versus Binance mark price.</p><div className="tablebox"><table><thead><tr><th aria-label="Watchlist" /><th onClick={() => setSort({ key: "base", dir: sort.key === "base" ? -sort.dir : 1 })}>Pair</th><th>Best direction</th>{BYBIT_COLS.map(c => <th key={c.key} className="num" onClick={() => setSort(s => ({ key: c.key, dir: s.key === c.key ? -s.dir : -1 }))}>{c.label}</th>)}</tr></thead><tbody>{shown.map(r => <tr key={r.base}><td><button className={`star ${watch.includes(r.base) ? "on" : ""}`} onClick={() => toggle(r.base)} aria-label={`Watch ${r.base}`}>{watch.includes(r.base) ? "★" : "☆"}</button></td><td><Link className="pairname" href={`/pair/${r.base}`}>{r.base}</Link></td><td className="dir">{dirLabel(r.y_direction ?? r.y_live_direction)}</td>{BYBIT_COLS.map(c => <td key={c.key} className="num">{c.render(r)}</td>)}</tr>)}{!shown.length && <tr><td colSpan={BYBIT_COLS.length + 3} className="empty">{loading ? "Loading pairs..." : "No Bybit data yet. Run Sync all pairs in Admin."}</td></tr>}</tbody></table></div></>;
+}
 
 function CoinDcxTable({ rows, q, minVol, onlyWatch, watch, toggle, loading }: {
   rows: Row[]; q: string; minVol: number; onlyWatch: boolean; watch: string[]; toggle: (b: string) => void; loading: boolean;

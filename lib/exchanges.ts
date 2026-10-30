@@ -1,6 +1,7 @@
 import type { Ev } from "./calc";
 
 const BIN = "https://fapi.binance.com";
+const BYBIT = "https://api.bybit.com";
 const DELTA = "https://api.india.delta.exchange";
 const DELTA_INTERVAL = Number(process.env.DELTA_FUNDING_INTERVAL_HOURS ?? 8);
 const DELTA_OFFSET = Number(process.env.DELTA_FUNDING_HOUR_OFFSET ?? 0);
@@ -51,6 +52,50 @@ export async function binanceHistory(symbol: string, startMs: number, interval: 
     for (const r of d) out.push({ ts: Number(r.fundingTime), rate: Number(r.fundingRate), interval });
     if (d.length < 1000) break;
     cur = Number(d[d.length - 1].fundingTime) + 1;
+  }
+  return out;
+}
+
+// ---------- Bybit V5 linear (USDT) ----------
+export async function bybitSymbols() {
+  const out: { symbol: string; base: string; interval: number }[] = [];
+  let cursor = "";
+  do {
+    const d = await get(`${BYBIT}/v5/market/instruments-info?category=linear&limit=1000${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`);
+    out.push(...(d.result?.list ?? [])
+      .filter((s: any) => s.contractType === "LinearPerpetual" && s.quoteCoin === "USDT" && s.status === "Trading")
+      .map((s: any) => ({ symbol: s.symbol as string, base: s.baseCoin as string, interval: Number(s.fundingInterval) / 60 })));
+    cursor = d.result?.nextPageCursor ?? "";
+  } while (cursor);
+  return out;
+}
+
+export async function bybitLive() {
+  const d = await get(`${BYBIT}/v5/market/tickers?category=linear`);
+  const out = new Map<string, { rate: number; mark: number; vol: number; oi: number; interval: number }>();
+  for (const t of d.result?.list ?? []) {
+    const rate = Number(t.fundingRate), mark = Number(t.markPrice);
+    if (!Number.isFinite(rate) || !Number.isFinite(mark)) continue;
+    out.set(t.symbol, { rate, mark, vol: Number(t.turnover24h ?? 0), oi: Number(t.openInterestValue ?? 0), interval: Number(t.fundingIntervalHour) || 8 });
+  }
+  return out;
+}
+
+export async function bybitHistory(symbol: string, startMs: number, interval: number): Promise<(Ev & { interval: number })[]> {
+  const out: (Ev & { interval: number })[] = [];
+  let end = Date.now();
+  // Bybit returns at most 200 records ordered newest-first. Work backward to the requested start.
+  for (let page = 0; page < 24 && end >= startMs; page++) {
+    const d = await get(`${BYBIT}/v5/market/funding/history?category=linear&symbol=${symbol}&endTime=${end}&limit=200`);
+    const list = d.result?.list ?? [];
+    if (!list.length) break;
+    for (const r of list) {
+      const ts = Number(r.fundingRateTimestamp);
+      if (ts >= startMs) out.push({ ts, rate: Number(r.fundingRate), interval });
+    }
+    const oldest = Number(list[list.length - 1].fundingRateTimestamp);
+    if (!Number.isFinite(oldest) || oldest <= startMs || list.length < 200) break;
+    end = oldest - 1;
   }
   return out;
 }

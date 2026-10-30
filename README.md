@@ -1,7 +1,7 @@
 # Funding Spread Monitor (Vercel edition)
 
 Next.js 15 + Neon Postgres + Vercel Functions. Monitors funding rates of the same perpetual on
-**Binance USDT-M** and **Delta Exchange India**, and computes the hedged return
+**Binance USDT-M** and **Delta Exchange India**, plus a separate **Binance USDT-M ↔ Bybit linear USDT** monitor, and computes the hedged return
 (short the exchange that pays less, long the other).
 
 ## How it works
@@ -34,6 +34,7 @@ Next.js 15 + Neon Postgres + Vercel Functions. Monitors funding rates of the sam
   (b) the funding interval and settlement hour match `DELTA_FUNDING_INTERVAL_HOURS` / `DELTA_FUNDING_HOUR_OFFSET`.
   If either assumption is wrong, 30d returns will be off by a constant factor.
 - **Contract mismatch:** Binance is USDT-margined, Delta India perps are USD-quoted. Check contract sizes for any pair you actually trade.
+- **Bybit mapping:** only actively trading linear USDT perpetuals are included. Its instrument endpoint supplies each contract's funding interval; the history endpoint is paged backward in 200-record batches.
 - **Fees:** set `TAKER_FEE_*` to your real tier (Delta India may add GST).
 - Returns are quoted on one leg's notional, before slippage, basis moves and borrowing/margin costs.
 
