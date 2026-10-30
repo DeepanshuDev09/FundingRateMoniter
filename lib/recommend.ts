@@ -11,6 +11,10 @@ const SIMS = 500;
 const N = 365;
 const DAYMS = 86400000;
 const DIR_A = "SHORT_BINANCE_LONG_DELTA", DIR_B = "LONG_BINANCE_SHORT_DELTA";
+export type RecommendationMarket = "delta" | "bybit";
+const cfg = (market: RecommendationMarket) => market === "bybit"
+  ? { peer: "bybit", features: "bybit_pair_features", obs: "bybit_wf_obs", summary: "bybit_wf_summary", dirA: "SHORT_BINANCE_LONG_BYBIT", dirB: "LONG_BINANCE_SHORT_BYBIT", fee: 2 * (Number(process.env.TAKER_FEE_BINANCE ?? 0.0005) + Number(process.env.TAKER_FEE_BYBIT ?? 0.00055)) }
+  : { peer: "delta", features: "pair_features", obs: "wf_obs", summary: "wf_summary", dirA: DIR_A, dirB: DIR_B, fee: roundTripFee() };
 
 // ---- Small helpers ----
 const sum = (a: number[]) => a.reduce((x, y) => x + y, 0);
@@ -54,7 +58,7 @@ function ranks(a: number[]) {
 }
 
 // ---- Data: one value per UTC day (Binance funding minus Delta funding), aligned so index N-1 = yesterday ----
-export async function loadDaily(bases: string[]) {
+export async function loadDaily(bases: string[], peer = "delta") {
   const rows = await q(
     `SELECT base, exchange, FLOOR(EXTRACT(EPOCH FROM ts)/86400)::int AS d, SUM(rate) AS r
        FROM funding_history WHERE base = ANY($1::text[]) GROUP BY 1,2,3`, [bases]);
@@ -62,7 +66,8 @@ export async function loadDaily(bases: string[]) {
   const by = new Map<string, { b: Map<number, number>; d: Map<number, number> }>();
   for (const r of rows) {
     let e = by.get(r.base); if (!e) { e = { b: new Map(), d: new Map() }; by.set(r.base, e); }
-    (r.exchange === "binance" ? e.b : e.d).set(Number(r.d), Number(r.r));
+    if (r.exchange === "binance") e.b.set(Number(r.d), Number(r.r));
+    else if (r.exchange === peer) e.d.set(Number(r.d), Number(r.r));
   }
   const out = new Map<string, (number | null)[]>();
   for (const [base, e] of by) {
@@ -76,12 +81,12 @@ export async function loadDaily(bases: string[]) {
 }
 
 // ---- Per-pair analysis ----
-export function analyzePair(base: string, arr: (number | null)[], volume: number | null, basis: number | null, maxMove: number | null) {
+export function analyzePair(base: string, arr: (number | null)[], volume: number | null, basis: number | null, maxMove: number | null, market: RecommendationMarket = "delta") {
   const have = nn(arr).length;
   if (nn(arr.slice(-180)).length < MIN_RECENT)
     return { base, eligible: false, reasons: ["Less than about 180 days of overlapping history"], flags: [] as string[], days: have };
 
-  const fee = roundTripFee();
+  const fee = cfg(market).fee;
   const sign = sum(nn(arr.slice(-90))) >= 0 ? 1 : -1;
   const s = arr.map((x) => (x === null ? null : x * sign));
   const s180 = nn(s.slice(-180)), s90 = nn(s.slice(-90)), s30 = nn(s.slice(-30));
@@ -128,7 +133,7 @@ export function analyzePair(base: string, arr: (number | null)[], volume: number
 
   return {
     base, eligible: reasons.length === 0, reasons, flags, days: have,
-    direction: sign === 1 ? DIR_A : DIR_B,
+    direction: sign === 1 ? cfg(market).dirA : cfg(market).dirB,
     mean30, mean90, med90, expected, spike, half_life: halfLife, max_dd: dd, flips,
     p10, p50, p90, p_win: pWin, cost, volume, basis, max_move: maxMove, lev, ret_cap: retCap,
     series: s.slice(-180).map((x) => (x === null ? null : rounded(x))),
@@ -136,8 +141,8 @@ export function analyzePair(base: string, arr: (number | null)[], volume: number
 }
 
 /** Walk-forward observations: at each past date, judge a pair using only data before it, then record what it earned next. */
-export function walkForward(arr: (number | null)[]) {
-  const fee = roundTripFee(), obs: any[] = [];
+export function walkForward(arr: (number | null)[], market: RecommendationMarket = "delta") {
+  const fee = cfg(market).fee, obs: any[] = [];
   for (let t = LOOKBACK; t <= N - HORIZON; t += 10) {
     const lb = arr.slice(t - LOOKBACK, t), fw = nn(arr.slice(t, t + HORIZON));
     const lbv = nn(lb);
@@ -152,16 +157,18 @@ export function walkForward(arr: (number | null)[]) {
 }
 
 // ---- Admin steps ----
-export async function recInit() {
-  await q(`DELETE FROM wf_obs`);
-  const rows = await q(`SELECT base FROM pair_map WHERE active ORDER BY base`);
+export async function recInit(market: RecommendationMarket = "delta") {
+  const c = cfg(market);
+  await q(`DELETE FROM ${c.obs}`);
+  const rows = await q(`SELECT base FROM pair_map WHERE active ${market === "bybit" ? "AND bybit_symbol IS NOT NULL" : "AND delta_symbol IS NOT NULL"} ORDER BY base`);
   return { bases: rows.map((r: any) => r.base as string) };
 }
 
-export async function recChunk(bases: string[]) {
+export async function recChunk(bases: string[], market: RecommendationMarket = "delta") {
+  const c = cfg(market);
   const [daily, meta] = await Promise.all([
-    loadDaily(bases),
-    q(`SELECT p.base,p.binance_symbol,p.b_mult,p.d_mult,l.b_vol,l.d_vol,l.b_mark,l.d_mark
+    loadDaily(bases, c.peer),
+    q(`SELECT p.base,p.binance_symbol,p.b_mult,p.d_mult,p.y_mult,l.b_vol,l.d_vol,l.b_mark,l.d_mark,l.y_vol,l.y_mark
          FROM pair_map p LEFT JOIN live_snapshot l ON l.base=p.base WHERE p.base = ANY($1::text[])`, [bases]),
   ]);
   const moves = await Promise.allSettled(meta.map((m: any) => binanceWorstMove(m.binance_symbol)));
@@ -169,17 +176,17 @@ export async function recChunk(bases: string[]) {
   meta.forEach((m: any, i: number) => {
     const arr = daily.get(m.base);
     if (!arr) return;
-    const vol = m.b_vol != null && m.d_vol != null ? Math.min(m.b_vol, m.d_vol) : null;
-    const basis = m.b_mark && m.d_mark ? m.d_mark / m.d_mult / (m.b_mark / m.b_mult) - 1 : null;
+    const vol = market === "bybit" ? (m.b_vol != null && m.y_vol != null ? Math.min(m.b_vol, m.y_vol) : null) : (m.b_vol != null && m.d_vol != null ? Math.min(m.b_vol, m.d_vol) : null);
+    const basis = market === "bybit" ? (m.b_mark && m.y_mark ? (m.y_mark / (m.y_mult ?? 1)) / (m.b_mark / m.b_mult) - 1 : null) : (m.b_mark && m.d_mark ? m.d_mark / m.d_mult / (m.b_mark / m.b_mult) - 1 : null);
     const mv = moves[i].status === "fulfilled" ? (moves[i] as any).value : null;
-    feats.push({ base: m.base, data: analyzePair(m.base, arr, vol, basis, mv) });
-    for (const o of walkForward(arr)) obs.push({ base: m.base, ...o });
+    feats.push({ base: m.base, data: analyzePair(m.base, arr, vol, basis, mv, market) });
+    for (const o of walkForward(arr, market)) obs.push({ base: m.base, ...o });
   });
   if (feats.length)
-    await q(`INSERT INTO pair_features(base,data,updated_at) SELECT base,data,now() FROM jsonb_to_recordset($1::jsonb) AS x(base text,data jsonb)
+    await q(`INSERT INTO ${c.features}(base,data,updated_at) SELECT base,data,now() FROM jsonb_to_recordset($1::jsonb) AS x(base text,data jsonb)
              ON CONFLICT (base) DO UPDATE SET data=EXCLUDED.data, updated_at=now()`, [JSON.stringify(feats)]);
   if (obs.length)
-    await q(`INSERT INTO wf_obs(base,fold,m30,m90,md90,cons,fwd)
+    await q(`INSERT INTO ${c.obs}(base,fold,m30,m90,md90,cons,fwd)
              SELECT base,fold,m30,m90,md90,cons,fwd FROM jsonb_to_recordset($1::jsonb)
              AS x(base text,fold int,m30 float8,m90 float8,md90 float8,cons float8,fwd float8)
              ON CONFLICT (base,fold) DO UPDATE SET m30=EXCLUDED.m30,m90=EXCLUDED.m90,md90=EXCLUDED.md90,cons=EXCLUDED.cons,fwd=EXCLUDED.fwd`,
@@ -188,8 +195,9 @@ export async function recChunk(bases: string[]) {
 }
 
 /** Does each ranking rule actually predict what pairs earned over the following 120 days? */
-export async function recFinish() {
-  const rows = await q(`SELECT base,fold,m30,m90,md90,cons,fwd FROM wf_obs`);
+export async function recFinish(market: RecommendationMarket = "delta") {
+  const c = cfg(market);
+  const rows = await q(`SELECT base,fold,m30,m90,md90,cons,fwd FROM ${c.obs}`);
   const byFold = new Map<number, any[]>();
   for (const r of rows) { const a = byFold.get(r.fold) ?? []; a.push(r); byFold.set(r.fold, a); }
   const groups = [...byFold.values()].filter((g) => g.length >= 15);
@@ -209,7 +217,7 @@ export async function recFinish() {
     folds: groups.length, pairs: new Set(rows.map((r: any) => r.base)).size, lookback: LOOKBACK, horizon: HORIZON,
     all_avg: mean(groups.map((g) => mean(g.map((r) => r.fwd)))), predictors, as_of: new Date().toISOString(),
   };
-  await q(`INSERT INTO wf_summary(id,data,updated_at) VALUES (1,$1::jsonb,now()) ON CONFLICT (id) DO UPDATE SET data=EXCLUDED.data, updated_at=now()`, [JSON.stringify(summary)]);
+  await q(`INSERT INTO ${c.summary}(id,data,updated_at) VALUES (1,$1::jsonb,now()) ON CONFLICT (id) DO UPDATE SET data=EXCLUDED.data, updated_at=now()`, [JSON.stringify(summary)]);
   return summary;
 }
 
@@ -220,10 +228,11 @@ function corr(a: (number | null)[], b: (number | null)[]) {
   return x.length >= 60 ? pearson(x, y) : null;
 }
 
-export async function getRecommendations() {
+export async function getRecommendations(market: RecommendationMarket = "delta") {
+  const c = cfg(market);
   const [rows, [sum_]] = await Promise.all([
-    q(`SELECT data, updated_at FROM pair_features`),
-    q(`SELECT data FROM wf_summary WHERE id=1`),
+    q(`SELECT data, updated_at FROM ${c.features}`),
+    q(`SELECT data FROM ${c.summary} WHERE id=1`),
   ]);
   const all = rows.map((r: any) => ({ ...r.data, updated_at: r.updated_at }));
   const eligible = all.filter((x: any) => x.eligible).sort((a: any, b: any) => b.p10 - a.p10);

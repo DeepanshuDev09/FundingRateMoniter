@@ -51,17 +51,20 @@ export default function Admin() {
     stop.current = false; setRunning("analyze"); setLog([]);
     try {
       add("Starting long-term analysis from the saved history (no exchange history calls except daily price candles).");
-      const { bases } = await call({ step: "rec_init" });
-      let done = 0, obs = 0;
-      for (let i = 0; i < bases.length && !stop.current; i += 20) {
-        const r = await call({ step: "rec_chunk", bases: bases.slice(i, i + 20) });
-        done += r.analyzed; obs += r.observations;
-        setProgress(`${Math.min(i + 20, bases.length)} of ${bases.length} pairs analysed`);
+      let done = 0, obs = 0, folds = 0;
+      for (const market of ["delta", "bybit"] as const) {
+        const { bases } = await call({ step: "rec_init", market });
+        add(`Scoring ${market === "delta" ? "Binance/Delta" : "Binance/Bybit"} pairs...`);
+        for (let i = 0; i < bases.length && !stop.current; i += 20) {
+          const r = await call({ step: "rec_chunk", market, bases: bases.slice(i, i + 20) });
+          done += r.analyzed; obs += r.observations;
+          setProgress(`${market}: ${Math.min(i + 20, bases.length)} of ${bases.length} pairs analysed`);
+        }
+        if (!stop.current) { const f = await call({ step: "rec_finish", market }); folds += f.summary.folds; }
       }
       if (stop.current) { add("Stopped."); }
       else {
-        const f = await call({ step: "rec_finish" });
-        add(`Done. ${done} pairs scored, ${obs} walk-forward observations, ${f.summary.folds} test dates. See /recommend.`);
+        add(`Done. ${done} pairs scored, ${obs} walk-forward observations, ${folds} test dates. See /recommend.`);
       }
     } catch (e: any) { add(`Error: ${e.message}`); }
     setRunning("");

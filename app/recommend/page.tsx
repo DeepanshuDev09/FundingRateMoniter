@@ -26,10 +26,11 @@ export default function Recommend() {
   if (error) return <div className="wrap"><Link className="back" href="/">Back to all pairs</Link><div className="err"><b>Couldn&apos;t load picks.</b> {error}</div></div>;
   if (!data) return <div className="wrap"><Link className="back" href="/">Back to all pairs</Link><p className="muted">Loading...</p></div>;
 
-  const v = data.validation, s = data.settings;
-  const byBase = Object.fromEntries(data.eligible.map((x: any) => [x.base, x]));
-  const basket = data.basket.map((b: string) => byBase[b]);
-  const empty = !data.eligible.length && !data.excluded.length;
+  const delta = data.delta ?? data, bybit = data.bybit;
+  const v = delta.validation, s = delta.settings;
+  const byBase = Object.fromEntries(delta.eligible.map((x: any) => [x.base, x]));
+  const basket = delta.basket.map((b: string) => byBase[b]);
+  const empty = !delta.eligible.length && !delta.excluded.length;
 
   const Table = ({ rows }: { rows: any[] }) => (
     <div className="tablebox">
@@ -111,8 +112,8 @@ export default function Recommend() {
       <p className="note" style={{ marginTop: 0 }}>Best poor-case results first, skipping pairs whose daily spread moves together with one already chosen. Max 8.</p>
       <Table rows={basket} />
 
-      <h2 style={{ marginTop: 22 }}>All pairs that passed ({data.eligible.length})</h2>
-      <Table rows={data.eligible} />
+      <h2 style={{ marginTop: 22 }}>All pairs that passed ({delta.eligible.length})</h2>
+      <Table rows={delta.eligible} />
 
       <p className="note" style={{ marginTop: 12 }}>
         <b>How to read it:</b> Poor / Typical / Good are the 10th, 50th and 90th percentile net return over {s.horizon} days on one leg&apos;s notional,
@@ -120,14 +121,14 @@ export default function Recommend() {
         with capital split across both exchanges. Max leverage keeps liquidation about 20% further away than the worst 4-month price move of the past year, assuming no margin top-ups.
       </p>
 
-      {!!data.excluded.length && (
+      {!!delta.excluded.length && (
         <details style={{ marginTop: 12 }}>
-          <summary className="muted">Excluded pairs ({data.excluded.length})</summary>
+          <summary className="muted">Excluded pairs ({delta.excluded.length})</summary>
           <div className="tablebox" style={{ marginTop: 8 }}>
             <table style={{ minWidth: 520 }}>
               <thead><tr><th>Pair</th><th>Reason</th><th className="num">Min volume</th></tr></thead>
               <tbody>
-                {data.excluded.map((r: any) => (
+                {delta.excluded.map((r: any) => (
                   <tr key={r.base}><td>{r.base}</td><td>{r.reasons.join("; ")}</td><td className="num">{usd(r.volume)}</td></tr>
                 ))}
               </tbody>
@@ -135,6 +136,18 @@ export default function Recommend() {
           </div>
         </details>
       )}
+
+      <section style={{ marginTop: 30 }}>
+        <h2>Binance ↔ Bybit recommendations</h2>
+        <p className="note" style={{ marginTop: 0 }}>A separate ranking using the same four-month walk-forward and bootstrap algorithm, with Binance and Bybit fees, liquidity, basis, and funding history.</p>
+        {!bybit || (!bybit.eligible.length && !bybit.excluded.length) ? <div className="err">No Binance–Bybit analysis yet. Run recommendation analysis in Admin after syncing history.</div> : <>
+          <h3>Core picks: diversified basket</h3>
+          <Table rows={bybit.basket.map((b: string) => bybit.eligible.find((x: any) => x.base === b)).filter(Boolean)} />
+          <h3 style={{ marginTop: 22 }}>All pairs that passed ({bybit.eligible.length})</h3>
+          <Table rows={bybit.eligible} />
+          {!!bybit.excluded.length && <details style={{ marginTop: 12 }}><summary className="muted">Excluded Binance–Bybit pairs ({bybit.excluded.length})</summary><div className="tablebox" style={{ marginTop: 8 }}><table style={{ minWidth: 520 }}><thead><tr><th>Pair</th><th>Reason</th><th className="num">Min volume</th></tr></thead><tbody>{bybit.excluded.map((r: any) => <tr key={r.base}><td>{r.base}</td><td>{r.reasons.join("; ")}</td><td className="num">{usd(r.volume)}</td></tr>)}</tbody></table></div></details>}
+        </>}
+      </section>
     </div>
   );
 }

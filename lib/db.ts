@@ -42,6 +42,11 @@ export const SCHEMA = [
      base text NOT NULL, fold int NOT NULL, m30 double precision, m90 double precision,
      md90 double precision, cons double precision, fwd double precision, PRIMARY KEY (base, fold))`,
   `CREATE TABLE IF NOT EXISTS wf_summary (id int PRIMARY KEY, data jsonb NOT NULL, updated_at timestamptz DEFAULT now())`,
+  `CREATE TABLE IF NOT EXISTS bybit_pair_features (base text PRIMARY KEY, data jsonb NOT NULL, updated_at timestamptz DEFAULT now())`,
+  `CREATE TABLE IF NOT EXISTS bybit_wf_obs (
+     base text NOT NULL, fold int NOT NULL, m30 double precision, m90 double precision,
+     md90 double precision, cons double precision, fwd double precision, PRIMARY KEY (base, fold))`,
+  `CREATE TABLE IF NOT EXISTS bybit_wf_summary (id int PRIMARY KEY, data jsonb NOT NULL, updated_at timestamptz DEFAULT now())`,
   `ALTER TABLE pair_map ADD COLUMN IF NOT EXISTS coindcx_pair text`,
   `ALTER TABLE pair_map ADD COLUMN IF NOT EXISTS c_interval real`,
   `ALTER TABLE live_snapshot ADD COLUMN IF NOT EXISTS c_rate double precision`,
