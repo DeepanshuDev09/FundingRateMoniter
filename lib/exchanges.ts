@@ -1,7 +1,8 @@
 import type { Ev } from "./calc";
 
 const BIN = "https://fapi.binance.com";
-const BYBIT = "https://api.bybit.com";
+// Bybit has several equivalent API hosts; some regions block one but not the other, so we try them in order.
+const BYBIT_HOSTS = [process.env.BYBIT_BASE, "https://api.bybit.com", "https://api.bytick.com"].filter(Boolean) as string[];
 const DELTA = "https://api.india.delta.exchange";
 const DELTA_INTERVAL = Number(process.env.DELTA_FUNDING_INTERVAL_HOURS ?? 8);
 const DELTA_OFFSET = Number(process.env.DELTA_FUNDING_HOUR_OFFSET ?? 0);
@@ -57,26 +58,56 @@ export async function binanceHistory(symbol: string, startMs: number, interval: 
 }
 
 // ---------- Bybit V5 linear (USDT) ----------
+/** GET a Bybit V5 path, trying each host until one answers. Also checks Bybit's own retCode (HTTP 200 can still be an error). */
+async function bybitGet(path: string): Promise<any> {
+  let lastErr: any;
+  for (const host of BYBIT_HOSTS) {
+    try {
+      const d = await get(`${host}${path}`);
+      if (d?.retCode !== undefined && d.retCode !== 0) throw new Error(`Bybit retCode ${d.retCode}: ${d.retMsg}`);
+      return d;
+    } catch (e) { lastErr = e; }
+  }
+  throw lastErr ?? new Error("No Bybit host configured");
+}
+
+const num = (v: any) => (v === "" || v == null ? NaN : Number(v));
+
 export async function bybitSymbols() {
   const out: { symbol: string; base: string; interval: number }[] = [];
   let cursor = "";
   do {
-    const d = await get(`${BYBIT}/v5/market/instruments-info?category=linear&limit=1000${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`);
+    const d = await bybitGet(`/v5/market/instruments-info?category=linear&limit=1000${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`);
     out.push(...(d.result?.list ?? [])
       .filter((s: any) => s.contractType === "LinearPerpetual" && s.quoteCoin === "USDT" && s.status === "Trading")
-      .map((s: any) => ({ symbol: s.symbol as string, base: s.baseCoin as string, interval: Number(s.fundingInterval) / 60 })));
+      .map((s: any) => ({ symbol: s.symbol as string, base: s.baseCoin as string, interval: Number(s.fundingInterval) / 60 || 8 })));
     cursor = d.result?.nextPageCursor ?? "";
   } while (cursor);
   return out;
 }
 
 export async function bybitLive() {
-  const d = await get(`${BYBIT}/v5/market/tickers?category=linear`);
+  const d = await bybitGet(`/v5/market/tickers?category=linear`);
   const out = new Map<string, { rate: number; mark: number; vol: number; oi: number; interval: number }>();
   for (const t of d.result?.list ?? []) {
-    const rate = Number(t.fundingRate), mark = Number(t.markPrice);
+    // Number("") is 0, which would look like a real 0% funding rate, so empty strings are treated as missing.
+    const rate = num(t.fundingRate), mark = num(t.markPrice);
     if (!Number.isFinite(rate) || !Number.isFinite(mark)) continue;
-    out.set(t.symbol, { rate, mark, vol: Number(t.turnover24h ?? 0), oi: Number(t.openInterestValue ?? 0), interval: Number(t.fundingIntervalHour) || 8 });
+    out.set(t.symbol, { rate, mark, vol: num(t.turnover24h) || 0, oi: num(t.openInterestValue) || 0, interval: Number(t.fundingIntervalHour) || 8 });
+  }
+  return out;
+}
+
+export async function bybitRaw(symbol = "BTCUSDT") {
+  const out: any = { hosts_tried: BYBIT_HOSTS };
+  for (const host of BYBIT_HOSTS) {
+    try {
+      const [t, h] = await Promise.all([
+        get(`${host}/v5/market/tickers?category=linear&symbol=${symbol}`),
+        get(`${host}/v5/market/funding/history?category=linear&symbol=${symbol}&limit=5`),
+      ]);
+      return { ...out, host_ok: host, ticker: t.result?.list?.[0], history_sample: h.result?.list };
+    } catch (e: any) { (out.errors ??= []).push(`${host}: ${String(e.message).slice(0, 200)}`); }
   }
   return out;
 }
@@ -86,7 +117,7 @@ export async function bybitHistory(symbol: string, startMs: number, interval: nu
   let end = Date.now();
   // Bybit returns at most 200 records ordered newest-first. Work backward to the requested start.
   for (let page = 0; page < 24 && end >= startMs; page++) {
-    const d = await get(`${BYBIT}/v5/market/funding/history?category=linear&symbol=${symbol}&endTime=${end}&limit=200`);
+    const d = await bybitGet(`/v5/market/funding/history?category=linear&symbol=${symbol}&endTime=${end}&limit=200`);
     const list = d.result?.list ?? [];
     if (!list.length) break;
     for (const r of list) {

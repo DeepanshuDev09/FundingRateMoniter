@@ -1,5 +1,5 @@
 import { isAdmin } from "@/lib/auth";
-import { q, SCHEMA } from "@/lib/db";
+import { db, SCHEMA } from "@/lib/db";
 import { recChunk, recFinish, recInit } from "@/lib/recommend";
 import { refreshLive, refreshPairs, syncHistory } from "@/lib/sync";
 export const maxDuration = 60;
@@ -13,14 +13,14 @@ export async function POST(req: Request) {
     if (body.step === "check") return Response.json({ ok: true });
     if (body.step === "init") {
       const since = new Date().toISOString();
-      for (const s of SCHEMA) await q(s);
-      const pairs = await refreshPairs();
-      await refreshLive();
-      return Response.json({ ok: true, pairs, since });
+      for (const stmt of SCHEMA) await db().query(stmt);
+      const rp = await refreshPairs();
+      const rl = await refreshLive();
+      return Response.json({ ok: true, pairs: rp.count, since, warnings: [...rp.warnings, ...rl.warnings] });
     }
     if (body.step === "batch") return Response.json({ ok: true, ...(await syncHistory(10, body.since)) });
     if (body.step === "rec_init") {
-      for (const s of SCHEMA) await q(s);
+      for (const stmt of SCHEMA) await db().query(stmt);
       return Response.json({ ok: true, ...(await recInit(body.market) ) });
     }
     if (body.step === "rec_chunk") return Response.json({ ok: true, ...(await recChunk(body.bases, body.market)) });

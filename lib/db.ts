@@ -10,7 +10,28 @@ export function db(): any {
   return client;
 }
 
+let schemaReady: Promise<void> | null = null;
+
+/** Runs the SCHEMA statements once per server instance, but only if something is missing.
+ *  Without this, an older database (created before the Bybit tables/columns existed) makes every read query fail with 500
+ *  until someone remembers to press "Sync all pairs" in Admin. */
+export function ensureSchema(): Promise<void> {
+  if (!schemaReady) {
+    schemaReady = (async () => {
+      const [r] = await db().query(
+        `SELECT (to_regclass('bybit_pair_stats') IS NOT NULL AND to_regclass('bybit_pair_features') IS NOT NULL
+                 AND to_regclass('bybit_wf_obs') IS NOT NULL AND to_regclass('bybit_wf_summary') IS NOT NULL
+                 AND to_regclass('live_snapshot') IS NOT NULL
+                 AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='live_snapshot' AND column_name='y_oi')
+                 AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='pair_map' AND column_name='y_interval')) AS ok`);
+      if (!r?.ok) for (const stmt of SCHEMA) await db().query(stmt);
+    })().catch((e) => { schemaReady = null; throw e; });
+  }
+  return schemaReady;
+}
+
 export async function q(text: string, params: any[] = []): Promise<any[]> {
+  await ensureSchema();
   return db().query(text, params);
 }
 

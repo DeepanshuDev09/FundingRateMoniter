@@ -43,3 +43,9 @@ Next.js 15 + Neon Postgres + Vercel Functions. Monitors funding rates of the sam
 Common-pair mapping, 30-day history then incremental sync, table with both hedge directions, gross/net, 7d/30d/3d trend,
 consistency, std, sign flips, basis, volume, freshness dots, per-pair chart, backtest and liquidation calculators,
 browser-side watchlist, CSV export, dark mode. Not included: user accounts, per-user alerts, paper trading, execution.
+
+## Bybit troubleshooting
+
+- Open `/api/debug/bybit` (header `x-admin-password`) to see which Bybit host answers from your Vercel region. The app tries `api.bybit.com`, then `api.bytick.com`; set `BYBIT_BASE` to force another host.
+- If both fail with 403, change the region in `vercel.json` (try `sin1`) and redeploy. A Bybit failure no longer stops the sync: Binance/Delta data is still saved and the Admin log shows a `warning` line.
+- Older databases are upgraded automatically on first read, so a stale schema no longer breaks `/api/pairs` or `/api/recommend`.

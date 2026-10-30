@@ -8,6 +8,7 @@ const feeRoundTrip = () =>
 
 /** Rebuild the common-pair list (stored in Postgres; served as JSON at /api/common-pairs). */
 export async function refreshPairs() {
+  const warnings: string[] = [];
   const [bs, dp] = await Promise.all([binanceSymbols(), deltaProducts()]);
   const bm = new Map<string, { symbol: string; mult: number }>();
   for (const s of bs) { const n = normBase(s.base); bm.set(n.base, { symbol: s.symbol, mult: n.mult }); }
@@ -24,9 +25,15 @@ export async function refreshPairs() {
   const rows = [...chosen.values()];
 
   // Bybit USDT linear perps are matched by normalized base, just like the other exchanges.
-  const ys = await bybitSymbols();
+  // If Bybit is unreachable (e.g. region block) keep the mapping we already stored instead of wiping it or failing the whole sync.
   const ym = new Map<string, { symbol: string; mult: number; interval: number }>();
-  for (const y of ys) { const n = normBase(y.base); ym.set(n.base, { symbol: y.symbol, mult: n.mult, interval: y.interval }); }
+  try {
+    for (const y of await bybitSymbols()) { const n = normBase(y.base); ym.set(n.base, { symbol: y.symbol, mult: n.mult, interval: y.interval }); }
+  } catch (e: any) {
+    warnings.push(`Bybit symbol list failed, reusing saved mapping: ${String(e.message).slice(0, 160)}`);
+    const old = await q(`SELECT base,bybit_symbol,y_mult,y_interval FROM pair_map WHERE bybit_symbol IS NOT NULL`).catch(() => []);
+    for (const o of old) ym.set(o.base, { symbol: o.bybit_symbol, mult: o.y_mult ?? 1, interval: o.y_interval ?? 8 });
+  }
   for (const r of rows) {
     const y = ym.get(r.base);
     r.bybit_symbol = y?.symbol ?? null; r.y_mult = y?.mult ?? null; r.y_interval = y?.interval ?? null;
@@ -62,20 +69,28 @@ export async function refreshPairs() {
   );
   await q(`UPDATE pair_map SET active=false WHERE NOT (base = ANY($1::text[]))`, [rows.map((r) => r.base)]);
   await q(`INSERT INTO sync_state(base) SELECT base FROM pair_map ON CONFLICT DO NOTHING`);
-  return rows.length;
+  return { count: rows.length, warnings };
 }
 
 /** One bulk call per exchange -> live rate, mark price, volume for every common pair. */
 export async function refreshLive() {
   const pairs = await q(`SELECT base,binance_symbol,delta_symbol,coindcx_pair,bybit_symbol FROM pair_map WHERE active`);
-  const [bl, dl, yl, cl] = await Promise.all([binanceLive(), deltaTickers(), bybitLive(), coindcxPrices().catch(() => new Map())]);
+  const warnings: string[] = [];
+  const [bl, dl, yl, cl] = await Promise.all([
+    binanceLive(), deltaTickers(),
+    bybitLive().catch((e) => { warnings.push(`Bybit live rates failed: ${String(e.message).slice(0, 160)}`); return null; }),
+    coindcxPrices().catch(() => new Map()),
+  ]);
+  // If Bybit failed, keep the last saved Bybit numbers rather than blanking the tab.
+  const oldY = new Map<string, any>();
+  if (!yl) for (const o of await q(`SELECT base,y_rate,y_interval,y_mark,y_vol,y_oi FROM live_snapshot WHERE y_rate IS NOT NULL`)) oldY.set(o.base, o);
   const dInterval = Number(process.env.DELTA_FUNDING_INTERVAL_HOURS ?? 8);
   const rows: any[] = [];
   for (const p of pairs) {
     const b = bl.get(p.binance_symbol), d = p.delta_symbol ? dl.get(p.delta_symbol) : null;
     if (!b) continue;
     const c = p.coindcx_pair ? cl.get(p.coindcx_pair) : null;
-    const y = p.bybit_symbol ? yl.get(p.bybit_symbol) : null;
+    const y = p.bybit_symbol ? (yl ? yl.get(p.bybit_symbol) : oldY.get(p.base) && { rate: oldY.get(p.base).y_rate, interval: oldY.get(p.base).y_interval, mark: oldY.get(p.base).y_mark, vol: oldY.get(p.base).y_vol, oi: oldY.get(p.base).y_oi }) : null;
     rows.push({
       base: p.base, b_rate: b.rate, d_rate: d?.rate ?? null, b_interval: b.interval, d_interval: d ? dInterval : null,
       b_mark: b.mark, d_mark: d?.mark ?? null, b_vol: b.vol, d_vol: d?.vol ?? null, d_oi: d?.oi ?? null,
@@ -93,7 +108,7 @@ export async function refreshLive() {
        d_vol=EXCLUDED.d_vol,d_oi=EXCLUDED.d_oi,c_rate=EXCLUDED.c_rate,c_mark=EXCLUDED.c_mark,y_rate=EXCLUDED.y_rate,y_interval=EXCLUDED.y_interval,y_mark=EXCLUDED.y_mark,y_vol=EXCLUDED.y_vol,y_oi=EXCLUDED.y_oi,ts=now()`,
     [JSON.stringify(rows)],
   );
-  return rows.length;
+  return { count: rows.length, warnings };
 }
 
 async function syncOne(p: any) {
@@ -108,10 +123,14 @@ async function syncOne(p: any) {
   const startFor = (ex: string) => (full && lm[ex] ? lm[ex].max + 1 : from);
   const [bi] = await q(`SELECT b_interval,y_interval FROM live_snapshot WHERE base=$1`, [p.base]);
 
+  let bybitError = "";
   const [b, d, y] = await Promise.all([
     binanceHistory(p.binance_symbol, startFor("binance"), bi?.b_interval ?? 8),
     p.delta_symbol ? deltaHistory(p.delta_symbol, startFor("delta")) : Promise.resolve([]),
-    p.bybit_symbol ? bybitHistory(p.bybit_symbol, startFor("bybit"), bi?.y_interval ?? p.y_interval ?? 8) : Promise.resolve([]),
+    p.bybit_symbol
+      ? bybitHistory(p.bybit_symbol, startFor("bybit"), bi?.y_interval ?? p.y_interval ?? 8)
+          .catch((e) => { bybitError = String(e.message).slice(0, 140); return [] as Awaited<ReturnType<typeof bybitHistory>>; })
+      : Promise.resolve([]),
   ]);
   const rows = [
     ...b.map((r) => ({ base: p.base, exchange: "binance", ts: new Date(r.ts).toISOString(), rate: r.rate, interval_hours: r.interval })),
@@ -127,8 +146,9 @@ async function syncOne(p: any) {
     );
   }
   await recomputeStats(p.base);
-  await q(`UPDATE sync_state SET last_synced_at=now(), backfill_days=365 WHERE base=$1`, [p.base]);
-  return rows.length;
+  // Only mark the year as fully backfilled when Bybit didn't fail, so a failed Bybit download is retried next sync.
+  await q(`UPDATE sync_state SET last_synced_at=now(), backfill_days=CASE WHEN $2 THEN backfill_days ELSE 365 END WHERE base=$1`, [p.base, !!bybitError]);
+  return { rows: rows.length, bybitError };
 }
 
 /** Sync up to N pairs not yet synced since `since` (ISO). Returns results + how many remain. */
@@ -151,6 +171,7 @@ export async function syncHistory(n: number, since: string) {
     results: pick.map((p: any, i: number) => ({
       base: p.base, ok: res[i].status === "fulfilled",
       error: res[i].status === "rejected" ? String((res[i] as any).reason).slice(0, 140) : undefined,
+      warn: res[i].status === "fulfilled" && (res[i] as any).value.bybitError ? `Bybit: ${(res[i] as any).value.bybitError}` : undefined,
     })),
     remaining: c as number,
   };
@@ -164,8 +185,8 @@ export async function recomputeStats(base: string) {
   );
   const mk = (ex: string) => rows.filter((r: any) => r.exchange === ex).map((r: any) => ({ ts: Number(r.ts), rate: Number(r.rate) }));
   const s = analyze(mk("binance"), mk("delta"), feeRoundTrip());
-  if (!s) return;
-  await q(
+  // Don't return early when there is no Delta data: Bybit-only pairs still need their Bybit stats below.
+  if (s) await q(
     `INSERT INTO pair_stats(base,direction,days,ret7,ret30,net30,avg_daily,apr,trend3_apr,consistency,spread_std,sign_flips,breakeven_days,ret90,net90,days90,updated_at)
      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,now())
      ON CONFLICT (base) DO UPDATE SET direction=$2,days=$3,ret7=$4,ret30=$5,net30=$6,avg_daily=$7,apr=$8,

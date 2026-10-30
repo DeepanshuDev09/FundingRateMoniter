@@ -43,5 +43,5 @@ export async function getPairDetail(base: string) {
     `SELECT exchange, EXTRACT(EPOCH FROM ts)*1000 AS ts, rate FROM funding_history
       WHERE base=$1 AND ts > now() - interval '91 days' ORDER BY ts`, [base]);
   const mk = (ex: string) => rows.filter((r: any) => r.exchange === ex).map((r: any) => ({ ts: Number(r.ts), rate: Number(r.rate) }));
-  return { pair, binance: mk("binance"), delta: mk("delta") };
+  return { pair, binance: mk("binance"), delta: mk("delta"), bybit: mk("bybit") };
 }

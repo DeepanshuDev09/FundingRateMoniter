@@ -31,6 +31,7 @@ export default function Admin() {
     try {
       add("Updating pair list and live funding rates...");
       const init = await call({ step: "init" });
+      (init.warnings ?? []).forEach((w: string) => add(`  warning: ${w}`));
       add(`${init.pairs} common pairs found. Syncing history, 10 pairs per batch. The first run downloads a full year per pair.`);
       let done = 0;
       while (!stop.current) {
@@ -38,6 +39,7 @@ export default function Admin() {
         done += b.results.length;
         add(`Synced ${b.results.map((r: any) => r.base).join(", ")}`);
         b.results.filter((r: any) => !r.ok).forEach((r: any) => add(`  failed ${r.base}: ${r.error}`));
+        b.results.filter((r: any) => r.warn).forEach((r: any) => add(`  warning ${r.base}: ${r.warn}`));
         setProgress(`${done} of ${init.pairs} pairs done, ${b.remaining} left`);
         if (b.remaining === 0 || b.results.length === 0) { add("All pairs synced. Users can see the new data now."); break; }
         for (let s = delay; s > 0 && !stop.current; s--) { setProgress(`${done} of ${init.pairs} pairs done. Next batch in ${s}s`); await sleep(1000); }
