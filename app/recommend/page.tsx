@@ -2,6 +2,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { dirLabel, pct, signedPct, usd } from "@/lib/format";
+import { Pager, usePaged } from "@/components/Pager";
 
 const PRED: Record<string, string> = {
   m30: "Average of the last 30 days",
@@ -11,7 +12,9 @@ const PRED: Record<string, string> = {
 };
 
 function Table({ rows, alt, q = "" }: { rows: any[]; alt: number; q?: string }) {
+  const paged = usePaged(rows, String(rows.length));
   return (
+    <>
     <div className="tablebox">
       <table style={{ minWidth: 1040 }}>
         <thead>
@@ -23,7 +26,7 @@ function Table({ rows, alt, q = "" }: { rows: any[]; alt: number; q?: string }) 
           </tr>
         </thead>
         <tbody>
-          {rows.map((r) => (
+          {paged.slice.map((r) => (
             <tr key={r.base}>
               <td><Link className="pairname" href={`/pair/${r.base}${q}`}>{r.base}</Link></td>
               <td className="dir">{dirLabel(r.direction)}</td>
@@ -41,6 +44,8 @@ function Table({ rows, alt, q = "" }: { rows: any[]; alt: number; q?: string }) 
         </tbody>
       </table>
     </div>
+    <Pager {...paged} />
+    </>
   );
 }
 
@@ -75,6 +80,26 @@ function Validation({ v }: { v: any }) {
   );
 }
 
+function Excluded({ rows }: { rows: any[] }) {
+  const paged = usePaged(rows, String(rows.length));
+  return (
+    <details style={{ marginTop: 12 }}>
+      <summary className="muted">Excluded pairs ({rows.length})</summary>
+      <div className="tablebox" style={{ marginTop: 8 }}>
+        <table style={{ minWidth: 520 }}>
+          <thead><tr><th>Pair</th><th>Reason</th><th className="num">Min volume</th></tr></thead>
+          <tbody>
+            {paged.slice.map((r: any) => (
+              <tr key={r.base}><td>{r.base}</td><td>{(r.reasons ?? []).join("; ")}</td><td className="num">{usd(r.volume)}</td></tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <Pager {...paged} />
+    </details>
+  );
+}
+
 function Market({ title, peer, m, err, alt }: { title: string; peer: string; m: any; err?: string | null; alt: number }) {
   if (err) return <section style={{ marginTop: 30 }}><h2>{title}</h2><div className="err"><b>Couldn&apos;t load this ranking.</b> {err}</div></section>;
   if (!m || (!m.eligible.length && !m.excluded.length))
@@ -91,19 +116,7 @@ function Market({ title, peer, m, err, alt }: { title: string; peer: string; m: 
       <h3 style={{ marginTop: 22 }}>All pairs that passed ({m.eligible.length})</h3>
       <Table rows={m.eligible} alt={alt} q={peer === "Bybit" ? "?market=bybit" : ""} />
       {!!m.excluded.length && (
-        <details style={{ marginTop: 12 }}>
-          <summary className="muted">Excluded pairs ({m.excluded.length})</summary>
-          <div className="tablebox" style={{ marginTop: 8 }}>
-            <table style={{ minWidth: 520 }}>
-              <thead><tr><th>Pair</th><th>Reason</th><th className="num">Min volume</th></tr></thead>
-              <tbody>
-                {m.excluded.map((r: any) => (
-                  <tr key={r.base}><td>{r.base}</td><td>{(r.reasons ?? []).join("; ")}</td><td className="num">{usd(r.volume)}</td></tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </details>
+        <Excluded rows={m.excluded} />
       )}
     </section>
   );

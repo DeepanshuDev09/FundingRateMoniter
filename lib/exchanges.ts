@@ -116,7 +116,7 @@ export async function bybitHistory(symbol: string, startMs: number, interval: nu
   const out: (Ev & { interval: number })[] = [];
   let end = Date.now();
   // Bybit returns at most 200 records ordered newest-first. Work backward to the requested start.
-  for (let page = 0; page < 24 && end >= startMs; page++) {
+  for (let page = 0; page < 50 && end >= startMs; page++) { // 50 pages x 200 = 10,000 records; a 1h-interval symbol needs ~44 for a year
     const d = await bybitGet(`/v5/market/funding/history?category=linear&symbol=${symbol}&endTime=${end}&limit=200`);
     const list = d.result?.list ?? [];
     if (!list.length) break;

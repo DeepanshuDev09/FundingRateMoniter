@@ -2,6 +2,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { cls, dirLabel, freshness, pct, signedPct, usd } from "@/lib/format";
+import { Pager, usePaged } from "@/components/Pager";
 
 type Row = any;
 const CACHE_KEY = "pairs-cache-v1";
@@ -78,6 +79,7 @@ export default function Home() {
       });
   }, [rows, q, minVol, minCons, onlyNet, onlyWatch, watch, sort, tab]);
 
+  const paged = usePaged(shown, `${tab}|${q}|${minVol}|${minCons}|${onlyNet}|${onlyWatch}|${sort.key}|${sort.dir}`);
   const synced = rows.filter((r) => r.last_synced_at).length;
 
   return (
@@ -133,7 +135,7 @@ export default function Home() {
             </tr>
           </thead>
           <tbody>
-            {shown.map((r) => {
+            {paged.slice.map((r) => {
               const f = freshness(r.last_synced_at);
               return (
                 <tr key={r.base}>
@@ -155,6 +157,7 @@ export default function Home() {
         </table>
       </div>
 
+        <Pager {...paged} />
         </>
       ) : tab === "by" ? (
         <BybitTable rows={rows} q={q} minVol={minVol} onlyWatch={onlyWatch} watch={watch} toggle={toggle} loading={loading} />
@@ -209,7 +212,8 @@ function BybitTable({ rows, q, minVol, onlyWatch, watch, toggle, loading }: { ro
         const x = col.get(a), y = col.get(b); if (x == null) return 1; if (y == null) return -1; return (x - y) * sort.dir;
       });
   }, [rows, q, minVol, onlyWatch, watch, sort]);
-  return <><p className="note" style={{ margin: "0 0 10px" }}>Historical and live funding spreads between Binance USDT-M and Bybit linear USDT perpetuals. Basis is Bybit mark price versus Binance mark price.</p><div className="tablebox"><table><thead><tr><th aria-label="Watchlist" /><th onClick={() => setSort({ key: "base", dir: sort.key === "base" ? -sort.dir : 1 })}>Pair</th><th>Best direction</th>{BYBIT_COLS.map(c => <th key={c.key} className="num" onClick={() => setSort(s => ({ key: c.key, dir: s.key === c.key ? -s.dir : -1 }))}>{c.label}</th>)}</tr></thead><tbody>{shown.map(r => <tr key={r.base}><td><button className={`star ${watch.includes(r.base) ? "on" : ""}`} onClick={() => toggle(r.base)} aria-label={`Watch ${r.base}`}>{watch.includes(r.base) ? "★" : "☆"}</button></td><td><Link className="pairname" href={`/pair/${r.base}?market=bybit`}>{r.base}</Link></td><td className="dir">{dirLabel(r.y_direction ?? r.y_live_direction)}</td>{BYBIT_COLS.map(c => <td key={c.key} className="num">{c.render(r)}</td>)}</tr>)}{!shown.length && <tr><td colSpan={BYBIT_COLS.length + 3} className="empty">{loading ? "Loading pairs..." : "No Bybit data yet. Run Sync all pairs in Admin."}</td></tr>}</tbody></table></div></>;
+  const paged = usePaged(shown, `${q}|${minVol}|${onlyWatch}|${sort.key}|${sort.dir}`);
+  return <><p className="note" style={{ margin: "0 0 10px" }}>Historical and live funding spreads between Binance USDT-M and Bybit linear USDT perpetuals. Basis is Bybit mark price versus Binance mark price.</p><div className="tablebox"><table><thead><tr><th aria-label="Watchlist" /><th onClick={() => setSort({ key: "base", dir: sort.key === "base" ? -sort.dir : 1 })}>Pair</th><th>Best direction</th>{BYBIT_COLS.map(c => <th key={c.key} className="num" onClick={() => setSort(s => ({ key: c.key, dir: s.key === c.key ? -s.dir : -1 }))}>{c.label}</th>)}</tr></thead><tbody>{paged.slice.map(r => <tr key={r.base}><td><button className={`star ${watch.includes(r.base) ? "on" : ""}`} onClick={() => toggle(r.base)} aria-label={`Watch ${r.base}`}>{watch.includes(r.base) ? "★" : "☆"}</button></td><td><Link className="pairname" href={`/pair/${r.base}?market=bybit`}>{r.base}</Link></td><td className="dir">{dirLabel(r.y_direction ?? r.y_live_direction)}</td>{BYBIT_COLS.map(c => <td key={c.key} className="num">{c.render(r)}</td>)}</tr>)}{!shown.length && <tr><td colSpan={BYBIT_COLS.length + 3} className="empty">{loading ? "Loading pairs..." : "No Bybit data yet. Run Sync all pairs in Admin."}</td></tr>}</tbody></table></div><Pager {...paged} /></>;
 }
 
 function CoinDcxTable({ rows, q, minVol, onlyWatch, watch, toggle, loading }: {
@@ -230,6 +234,7 @@ function CoinDcxTable({ rows, q, minVol, onlyWatch, watch, toggle, loading }: {
         return (x - y) * sort.dir;
       });
   }, [listed, q, minVol, onlyWatch, watch, sort]);
+  const paged = usePaged(shown, `${q}|${minVol}|${onlyWatch}|${sort.key}|${sort.dir}`);
 
   return (
     <>
@@ -252,7 +257,7 @@ function CoinDcxTable({ rows, q, minVol, onlyWatch, watch, toggle, loading }: {
             </tr>
           </thead>
           <tbody>
-            {shown.map((r) => (
+            {paged.slice.map((r) => (
               <tr key={r.base}>
                 <td><button className={`star ${watch.includes(r.base) ? "on" : ""}`} onClick={() => toggle(r.base)} aria-label={`Watch ${r.base}`}>{watch.includes(r.base) ? "★" : "☆"}</button></td>
                 <td><Link className="pairname" href={`/pair/${r.base}`}>{r.base}</Link></td>
@@ -268,6 +273,7 @@ function CoinDcxTable({ rows, q, minVol, onlyWatch, watch, toggle, loading }: {
           </tbody>
         </table>
       </div>
+      <Pager {...paged} />
     </>
   );
 }
