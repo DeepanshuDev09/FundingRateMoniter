@@ -26,23 +26,25 @@ export default function Admin() {
     catch (e: any) { add(e.message); }
   };
 
-  const syncAll = async () => {
-    stop.current = false; setRunning("sync"); setLog([]);
+  const syncMarket = async (market: "delta" | "bybit") => {
+    const marketName = market === "delta" ? "Binance - Delta" : "Binance - Bybit";
+    stop.current = false; setRunning(market); setLog([]);
     try {
-      add("Updating pair list and live funding rates...");
+      add(`Updating pair list and live funding rates for ${marketName}...`);
       const init = await call({ step: "init" });
       (init.warnings ?? []).forEach((w: string) => add(`  warning: ${w}`));
-      add(`${init.pairs} common pairs found. Syncing history, 10 pairs per batch. The first run downloads a full year per pair.`);
-      let done = 0;
+      add(`Syncing ${marketName} history, 10 pairs per batch. The first run downloads a full year per pair.`);
+      let done = 0, total = 0;
       while (!stop.current) {
-        const b = await call({ step: "batch", since: init.since });
+        const b = await call({ step: "batch", since: init.since, market });
         done += b.results.length;
         add(`Synced ${b.results.map((r: any) => r.base).join(", ")}`);
         b.results.filter((r: any) => !r.ok).forEach((r: any) => add(`  failed ${r.base}: ${r.error}`));
         b.results.filter((r: any) => r.warn).forEach((r: any) => add(`  warning ${r.base}: ${r.warn}`));
-        setProgress(`${done} of ${init.pairs} pairs done, ${b.remaining} left`);
+        total = done + b.remaining;
+        setProgress(`${done} of ${total} pairs done, ${b.remaining} left`);
         if (b.remaining === 0 || b.results.length === 0) { add("All pairs synced. Users can see the new data now."); break; }
-        for (let s = delay; s > 0 && !stop.current; s--) { setProgress(`${done} of ${init.pairs} pairs done. Next batch in ${s}s`); await sleep(1000); }
+        for (let s = delay; s > 0 && !stop.current; s--) { setProgress(`${done} of ${total} pairs done. Next batch in ${s}s`); await sleep(1000); }
       }
       if (stop.current) add("Stopped. Run again to continue.");
     } catch (e: any) { add(`Error: ${e.message}`); }
@@ -89,14 +91,15 @@ export default function Admin() {
       ) : (
         <div className="box">
           <h2>1. Sync funding data</h2>
-          <p className="sub">Updates the pair list and live rates, then downloads funding history for every pair, 10 at a time, and saves it. Keep this tab open while it runs.</p>
+          <p className="sub">Choose a market pair to update. Each scan refreshes the pair list and live rates, then downloads funding history 10 pairs at a time. Keep this tab open while it runs.</p>
           <div className="bar">
             <label>Wait between batches
               <select value={delay} onChange={(e) => setDelay(Number(e.target.value))} disabled={!!running}>
                 <option value={60}>60 seconds</option><option value={30}>30 seconds</option><option value={10}>10 seconds</option>
               </select>
             </label>
-            <button onClick={syncAll} disabled={!!running}>Sync all pairs</button>
+            <button onClick={() => syncMarket("delta")} disabled={!!running}>Sync Binance - Delta</button>
+            <button onClick={() => syncMarket("bybit")} disabled={!!running}>Sync Binance - Bybit</button>
           </div>
           <h2 style={{ marginTop: 18 }}>2. Run long-term analysis</h2>
           <p className="sub">Scores every pair for a 4-month hold and tests the ranking rules against past data. Run it after a sync. It takes about a minute.</p>

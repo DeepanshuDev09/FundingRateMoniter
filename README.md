@@ -7,9 +7,9 @@ Next.js 15 + Neon Postgres + Vercel Functions. Monitors funding rates of the sam
 ## How it works
 
 - Visitors see data saved in Postgres only. They never trigger any exchange calls.
-- You open `/admin`, enter `ADMIN_PASSWORD`, and click **Sync all pairs**. The page then:
+- You open `/admin`, enter `ADMIN_PASSWORD`, and choose **Sync Binance - Delta** or **Sync Binance - Bybit**. Each scan:
   1. creates tables if needed, rebuilds the common-pair list (also downloadable at `/api/common-pairs`) and saves live rates;
-  2. downloads funding history for 10 pairs per batch (30 days the first time, only new records afterwards) and saves it;
+  2. downloads funding history for 10 pairs per batch (a full year on the first scan for that market, then only new records) and saves it;
   3. waits (default 60 s) and repeats until every pair is done.
 - Keep the admin tab open while it runs. If you close it, the pairs already saved stay saved; click again to continue.
 - No cron jobs, so it works on the free Vercel Hobby plan.
@@ -19,7 +19,7 @@ Next.js 15 + Neon Postgres + Vercel Functions. Monitors funding rates of the sam
 1. Push this folder to GitHub and import it in Vercel.
 2. Add **Neon Postgres** from the Vercel Marketplace (sets `DATABASE_URL`).
 3. Add `ADMIN_PASSWORD` (and the other variables in `.env.example`), then deploy.
-4. Open `/admin`, sign in, click **Sync all pairs**.
+4. Open `/admin`, sign in, and run the sync button for each market you want to update.
 5. Verify Delta units (see below):
    `curl -H "x-admin-password: YOUR_PASSWORD" "https://YOUR-APP.vercel.app/api/debug/delta?symbol=BTCUSD"`
 

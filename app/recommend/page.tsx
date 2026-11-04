@@ -103,7 +103,7 @@ function Excluded({ rows }: { rows: any[] }) {
 function Market({ title, peer, m, err, alt }: { title: string; peer: string; m: any; err?: string | null; alt: number }) {
   if (err) return <section style={{ marginTop: 30 }}><h2>{title}</h2><div className="err"><b>Couldn&apos;t load this ranking.</b> {err}</div></section>;
   if (!m || (!m.eligible.length && !m.excluded.length))
-    return <section style={{ marginTop: 30 }}><h2>{title}</h2><div className="err">No {title} analysis yet. In Admin, run &ldquo;Sync all pairs&rdquo; (first run downloads a year of history), then &ldquo;Run recommendation analysis&rdquo;.</div></section>;
+    return <section style={{ marginTop: 30 }}><h2>{title}</h2><div className="err">No {title} analysis yet. In Admin, run the matching market sync (the first run downloads a year of history), then &ldquo;Run recommendation analysis&rdquo;.</div></section>;
   const byBase = Object.fromEntries(m.eligible.map((x: any) => [x.base, x]));
   const basket = m.basket.map((b: string) => byBase[b]).filter(Boolean);
   return (

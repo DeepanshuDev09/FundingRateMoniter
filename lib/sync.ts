@@ -111,14 +111,16 @@ export async function refreshLive() {
   return { count: rows.length, warnings };
 }
 
-async function syncOne(p: any) {
+type SyncMarket = "delta" | "bybit";
+
+async function syncOne(p: any, market?: SyncMarket) {
   const last = await q(
     `SELECT exchange, EXTRACT(EPOCH FROM MIN(ts))*1000 AS min_ms, EXTRACT(EPOCH FROM MAX(ts))*1000 AS max_ms
        FROM funding_history WHERE base=$1 GROUP BY exchange`, [p.base]);
   const lm = Object.fromEntries(last.map((r: any) => [r.exchange, { min: Number(r.min_ms), max: Number(r.max_ms) }]));
   const from = Date.now() - 365 * DAY;
-  // Backfill a full year once per pair (tracked in sync_state.backfill_days); after that only fetch what's new.
-  const [st] = await q(`SELECT backfill_days FROM sync_state WHERE base=$1`, [p.base]);
+  const backfillColumn = market ? `${market}_backfill_days` : "backfill_days";
+  const [st] = await q(`SELECT ${backfillColumn} AS backfill_days FROM sync_state WHERE base=$1`, [p.base]);
   const full = (st?.backfill_days ?? 0) >= 365;
   const startFor = (ex: string) => (full && lm[ex] ? lm[ex].max + 1 : from);
   const [bi] = await q(`SELECT b_interval,y_interval FROM live_snapshot WHERE base=$1`, [p.base]);
@@ -126,8 +128,8 @@ async function syncOne(p: any) {
   let bybitError = "";
   const [b, d, y] = await Promise.all([
     binanceHistory(p.binance_symbol, startFor("binance"), bi?.b_interval ?? 8),
-    p.delta_symbol ? deltaHistory(p.delta_symbol, startFor("delta")) : Promise.resolve([]),
-    p.bybit_symbol
+    (!market || market === "delta") && p.delta_symbol ? deltaHistory(p.delta_symbol, startFor("delta")) : Promise.resolve([]),
+    (!market || market === "bybit") && p.bybit_symbol
       ? bybitHistory(p.bybit_symbol, startFor("bybit"), bi?.y_interval ?? p.y_interval ?? 8)
           .catch((e) => { bybitError = String(e.message).slice(0, 140); return [] as Awaited<ReturnType<typeof bybitHistory>>; })
       : Promise.resolve([]),
@@ -146,25 +148,35 @@ async function syncOne(p: any) {
     );
   }
   await recomputeStats(p.base);
-  // Only mark the year as fully backfilled when Bybit didn't fail, so a failed Bybit download is retried next sync.
-  await q(`UPDATE sync_state SET last_synced_at=now(), backfill_days=CASE WHEN $2 THEN backfill_days ELSE 365 END WHERE base=$1`, [p.base, !!bybitError]);
+  const timestampColumn = market ? `${market}_last_synced_at` : "last_synced_at";
+  const timestampUpdate = market ? `${timestampColumn}=now(), last_synced_at=now()` : "last_synced_at=now()";
+  await q(
+    `UPDATE sync_state SET ${timestampUpdate}, ${backfillColumn}=CASE WHEN $2 THEN ${backfillColumn} ELSE 365 END WHERE base=$1`,
+    [p.base, !!bybitError],
+  );
   return { rows: rows.length, bybitError };
 }
 
 /** Sync up to N pairs not yet synced since `since` (ISO). Returns results + how many remain. */
-export async function syncHistory(n: number, since: string) {
-  const where = `p.active AND (s.last_synced_at IS NULL OR s.last_synced_at < $1::timestamptz)`;
+export async function syncHistory(n: number, since: string, market?: SyncMarket) {
+  const timestampColumn = market ? `${market}_last_synced_at` : "last_synced_at";
+  const targetColumn = market === "delta" ? "delta_symbol" : market === "bybit" ? "bybit_symbol" : null;
+  const peerVolumeColumn = market === "bybit" ? "l.y_vol" : "l.d_vol";
+  const where = `p.active ${targetColumn ? `AND p.${targetColumn} IS NOT NULL` : ""} AND (s.${timestampColumn} IS NULL OR s.${timestampColumn} < $1::timestamptz)`;
   const pick = await q(
     `SELECT p.base,p.binance_symbol,p.delta_symbol,p.bybit_symbol,p.y_interval FROM pair_map p
        LEFT JOIN sync_state s ON s.base=p.base LEFT JOIN live_snapshot l ON l.base=p.base
       WHERE ${where}
-      ORDER BY COALESCE(LEAST(l.b_vol,l.d_vol),0) DESC LIMIT $2`,
+      ORDER BY COALESCE(LEAST(l.b_vol,${peerVolumeColumn}),0) DESC LIMIT $2`,
     [since, n],
   );
-  const res = await Promise.allSettled(pick.map(syncOne));
+  const res = await Promise.allSettled(pick.map((p: any) => syncOne(p, market)));
   // A failed pair is stamped too, so one bad pair can't block the run; it is reported in the log.
   const failed = pick.filter((_: any, i: number) => res[i].status === "rejected").map((p: any) => p.base);
-  if (failed.length) await q(`UPDATE sync_state SET last_synced_at=now() WHERE base = ANY($1::text[])`, [failed]);
+  if (failed.length) {
+    const timestampUpdate = market ? `${timestampColumn}=now(), last_synced_at=now()` : "last_synced_at=now()";
+    await q(`UPDATE sync_state SET ${timestampUpdate} WHERE base = ANY($1::text[])`, [failed]);
+  }
   const [{ c }] = await q(
     `SELECT COUNT(*)::int AS c FROM pair_map p LEFT JOIN sync_state s ON s.base=p.base WHERE ${where}`, [since]);
   return {

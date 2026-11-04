@@ -14,7 +14,7 @@ let schemaReady: Promise<void> | null = null;
 
 /** Runs the SCHEMA statements once per server instance, but only if something is missing.
  *  Without this, an older database (created before the Bybit tables/columns existed) makes every read query fail with 500
- *  until someone remembers to press "Sync all pairs" in Admin. */
+ *  until someone remembers to run a market sync in Admin. */
 export function ensureSchema(): Promise<void> {
   if (!schemaReady) {
     schemaReady = (async () => {
@@ -56,6 +56,10 @@ export const SCHEMA = [
   `ALTER TABLE pair_stats ADD COLUMN IF NOT EXISTS net90 double precision`,
   `ALTER TABLE pair_stats ADD COLUMN IF NOT EXISTS days90 int`,
   `CREATE TABLE IF NOT EXISTS sync_state (base text PRIMARY KEY, last_synced_at timestamptz)`,
+  `ALTER TABLE sync_state ADD COLUMN IF NOT EXISTS delta_last_synced_at timestamptz`,
+  `ALTER TABLE sync_state ADD COLUMN IF NOT EXISTS bybit_last_synced_at timestamptz`,
+  `ALTER TABLE sync_state ADD COLUMN IF NOT EXISTS delta_backfill_days int`,
+  `ALTER TABLE sync_state ADD COLUMN IF NOT EXISTS bybit_backfill_days int`,
   `CREATE TABLE IF NOT EXISTS alert_log (base text PRIMARY KEY, sent_at timestamptz NOT NULL)`,
   `ALTER TABLE sync_state ADD COLUMN IF NOT EXISTS backfill_days int`,
   `CREATE TABLE IF NOT EXISTS pair_features (base text PRIMARY KEY, data jsonb NOT NULL, updated_at timestamptz DEFAULT now())`,

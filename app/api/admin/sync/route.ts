@@ -5,7 +5,7 @@ import { refreshLive, refreshPairs, syncHistory } from "@/lib/sync";
 export const maxDuration = 60;
 export const dynamic = "force-dynamic";
 
-/** POST {step:"check"} | {step:"init"} | {step:"batch", since} - admin password required. */
+/** POST {step:"check"} | {step:"init"} | {step:"batch", since, market?} - admin password required. */
 export async function POST(req: Request) {
   if (!isAdmin(req)) return Response.json({ error: "Wrong password" }, { status: 401 });
   try {
@@ -18,7 +18,11 @@ export async function POST(req: Request) {
       const rl = await refreshLive();
       return Response.json({ ok: true, pairs: rp.count, since, warnings: [...rp.warnings, ...rl.warnings] });
     }
-    if (body.step === "batch") return Response.json({ ok: true, ...(await syncHistory(10, body.since)) });
+    if (body.step === "batch") {
+      if (body.market != null && body.market !== "delta" && body.market !== "bybit")
+        return Response.json({ error: "Unknown sync market" }, { status: 400 });
+      return Response.json({ ok: true, ...(await syncHistory(10, body.since, body.market)) });
+    }
     if (body.step === "rec_init") {
       for (const stmt of SCHEMA) await db().query(stmt);
       return Response.json({ ok: true, ...(await recInit(body.market) ) });
