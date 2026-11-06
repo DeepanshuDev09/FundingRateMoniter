@@ -13,6 +13,7 @@ const COLS: { key: string; label: string; num?: boolean; get: (r: Row) => any; r
   { key: "ret30", label: "30d gross", num: true, get: (r) => r.ret30, render: (r) => <span className={cls(r.ret30)}>{signedPct(r.ret30)}</span> },
   { key: "net30", label: "30d net", num: true, get: (r) => r.net30, render: (r) => <span className={cls(r.net30)}>{signedPct(r.net30)}</span> },
   { key: "net90", label: "3-mo net", num: true, get: (r) => r.net90, render: (r) => <span className={cls(r.net90)}>{signedPct(r.net90)}</span> },
+  { key: "ret365", label: "1y gross", num: true, get: (r) => r.ret365, render: (r) => <span className={cls(r.ret365)}>{signedPct(r.ret365)}</span> },
   { key: "apr", label: "30d APR", num: true, get: (r) => r.apr, render: (r) => pct(r.apr, 0) },
   { key: "trend3_apr", label: "3d APR", num: true, get: (r) => r.trend3_apr,
     render: (r) => <span className={r.trend3_apr != null && r.apr != null && r.trend3_apr < r.apr * 0.5 ? "warn" : ""}>{pct(r.trend3_apr, 0)}</span> },

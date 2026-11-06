@@ -40,7 +40,7 @@ Next.js 15 + Neon Postgres + Vercel Functions. Monitors funding rates of the sam
 
 ## Included
 
-Common-pair mapping, 30-day history then incremental sync, table with both hedge directions, gross/net, 7d/30d/3d trend,
+Common-pair mapping, one-year history then incremental sync, table with both hedge directions, 7d/30d/90d and one-year returns, 3d trend,
 consistency, std, sign flips, basis, volume, freshness dots, per-pair chart, backtest and liquidation calculators,
 browser-side watchlist, CSV export, dark mode. Not included: user accounts, per-user alerts, paper trading, execution.
 

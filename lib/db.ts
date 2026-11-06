@@ -23,7 +23,9 @@ export function ensureSchema(): Promise<void> {
                  AND to_regclass('bybit_wf_obs') IS NOT NULL AND to_regclass('bybit_wf_summary') IS NOT NULL
                  AND to_regclass('live_snapshot') IS NOT NULL
                  AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='live_snapshot' AND column_name='y_oi')
-                 AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='pair_map' AND column_name='y_interval')) AS ok`);
+                 AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='pair_map' AND column_name='y_interval')
+                 AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='pair_stats' AND column_name='ret365')
+                 AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='bybit_pair_stats' AND column_name='ret365')) AS ok`);
       if (!r?.ok) for (const stmt of SCHEMA) await db().query(stmt);
     })().catch((e) => { schemaReady = null; throw e; });
   }
@@ -55,6 +57,9 @@ export const SCHEMA = [
   `ALTER TABLE pair_stats ADD COLUMN IF NOT EXISTS ret90 double precision`,
   `ALTER TABLE pair_stats ADD COLUMN IF NOT EXISTS net90 double precision`,
   `ALTER TABLE pair_stats ADD COLUMN IF NOT EXISTS days90 int`,
+  `ALTER TABLE pair_stats ADD COLUMN IF NOT EXISTS ret365 double precision`,
+  `ALTER TABLE pair_stats ADD COLUMN IF NOT EXISTS net365 double precision`,
+  `ALTER TABLE pair_stats ADD COLUMN IF NOT EXISTS days365 int`,
   `CREATE TABLE IF NOT EXISTS sync_state (base text PRIMARY KEY, last_synced_at timestamptz)`,
   `ALTER TABLE sync_state ADD COLUMN IF NOT EXISTS delta_last_synced_at timestamptz`,
   `ALTER TABLE sync_state ADD COLUMN IF NOT EXISTS bybit_last_synced_at timestamptz`,
@@ -86,4 +91,7 @@ export const SCHEMA = [
   `ALTER TABLE live_snapshot ADD COLUMN IF NOT EXISTS y_vol double precision`,
   `ALTER TABLE live_snapshot ADD COLUMN IF NOT EXISTS y_oi double precision`,
   `CREATE TABLE IF NOT EXISTS bybit_pair_stats (LIKE pair_stats INCLUDING ALL)`,
+  `ALTER TABLE bybit_pair_stats ADD COLUMN IF NOT EXISTS ret365 double precision`,
+  `ALTER TABLE bybit_pair_stats ADD COLUMN IF NOT EXISTS net365 double precision`,
+  `ALTER TABLE bybit_pair_stats ADD COLUMN IF NOT EXISTS days365 int`,
 ];

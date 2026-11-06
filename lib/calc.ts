@@ -24,7 +24,7 @@ export const BYBIT_DIR_B = "LONG_BINANCE_SHORT_BYBIT";
 
 /** Short the exchange paying less, long the other. Positive funding: longs pay shorts.
  *  Short Binance + Long Delta earns (binanceFunding - deltaFunding).
- *  Direction is chosen from the last 30 days; the 90-day figure holds that same direction. */
+ *  Direction is chosen from the last 30 days; longer-window returns hold that same direction. */
 export function analyze(b: Ev[], d: Ev[], roundTripFee: number, directions = [DIR_A, DIR_B]) {
   const rows = dailySpread(b, d);
   if (rows.length < 3) return null;
@@ -41,15 +41,20 @@ export function analyze(b: Ev[], d: Ev[], roundTripFee: number, directions = [DI
     if (a !== 0 && c !== 0 && Math.sign(a) !== Math.sign(c)) flips++;
   }
   const last3 = s.slice(-3);
+  const last90 = all.slice(-90);
+  const last365 = all.slice(-365);
   return {
     direction: sign === 1 ? directions[0] : directions[1],
     days: n,
-    days90: all.length,
+    days90: last90.length,
+    days365: last365.length,
     ret30: sum(s),
     ret7: sum(s.slice(-7)),
-    ret90: sum(all),
+    ret90: sum(last90),
+    ret365: sum(last365),
     net30: sum(s) - roundTripFee,
-    net90: sum(all) - roundTripFee,
+    net90: sum(last90) - roundTripFee,
+    net365: sum(last365) - roundTripFee,
     avg_daily: avg,
     apr: avg * 365,
     trend3_apr: (sum(last3) / last3.length) * 365,
@@ -67,7 +72,7 @@ export function chartSeries(b: Ev[], d: Ev[], direction: string, labels = ["bina
     const earn = r.spread * sign;
     cum += earn;
     return {
-      date: new Date(r.day).toISOString().slice(5, 10),
+      date: new Date(r.day).toISOString().slice(0, 10),
       [labels[0]]: r.b * 100, [labels[1]]: r.d * 100, // % per day
       earn: earn * 100, cumulative: cum * 100,
     };

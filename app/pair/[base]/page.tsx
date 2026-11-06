@@ -41,6 +41,7 @@ export default function PairPage({ params, searchParams }: { params: Promise<{ b
       <div className="facts">
         <div className="fact"><b className={cls(pk("net30"))}>{signedPct(pk("net30"))}</b><span>30d net of fees</span></div>
         <div className="fact"><b className={cls(pk("net90"))}>{signedPct(pk("net90"))}</b><span>3-month net of fees{pk("days90") && pk("days90") < 85 ? ` (${pk("days90")} days of data)` : ""}</span></div>
+        <div className="fact"><b className={cls(pk("ret365"))}>{signedPct(pk("ret365"))}</b><span>1y gross return{pk("days365") && pk("days365") < 350 ? ` (${pk("days365")} days of data)` : ""}</span></div>
         <div className="fact"><b className={cls(pk("ret30"))}>{signedPct(pk("ret30"))}</b><span>30d gross</span></div>
         <div className="fact"><b>{pct(pk("apr"), 0)}</b><span>30d APR (on notional)</span></div>
         <div className="fact"><b>{pct(pk("trend3_apr"), 0)}</b><span>Last 3 days APR</span></div>
@@ -49,7 +50,7 @@ export default function PairPage({ params, searchParams }: { params: Promise<{ b
       </div>
 
       <div className="box">
-        <h2>Daily funding and cumulative earnings (% of notional)</h2>
+        <h2>Past year: daily funding and cumulative earnings (% of notional)</h2>
         <div style={{ width: "100%", height: 320 }}>
           <ResponsiveContainer>
             <ComposedChart data={series}>
@@ -113,7 +114,7 @@ function Backtest({ series, defaultFee }: { series: any[]; defaultFee: number })
         <label>Total capital (USD)<input type="number" min={0} value={capital} onChange={(e) => setCapital(Number(e.target.value))} /></label>
         <label>Leverage<input type="number" min={1} value={lev} onChange={(e) => setLev(Number(e.target.value))} /></label>
         <label>Period
-          <select value={days} onChange={(e) => setDays(Number(e.target.value))}><option value={7}>7 days</option><option value={14}>14 days</option><option value={30}>30 days</option><option value={90}>90 days</option></select>
+          <select value={days} onChange={(e) => setDays(Number(e.target.value))}><option value={7}>7 days</option><option value={14}>14 days</option><option value={30}>30 days</option><option value={90}>90 days</option><option value={365}>1 year</option></select>
         </label>
         <label>Taker fee per leg (%)<input type="number" step="0.01" value={fee} onChange={(e) => setFee(Number(e.target.value))} /></label>
       </div>
