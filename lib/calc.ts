@@ -9,6 +9,17 @@ function bucket(ev: Ev[]) {
   return m;
 }
 
+/** Per-UTC-day funding as percentages, retaining days present on only one exchange. */
+export function dailyFunding(b: Ev[], d: Ev[]) {
+  const bm = bucket(b), dm = bucket(d);
+  const days = [...new Set([...bm.keys(), ...dm.keys()])].sort((x, y) => x - y);
+  return days.map((k) => ({
+    date: new Date(k * DAY).toISOString().slice(0, 10),
+    binance: bm.has(k) ? bm.get(k)! * 100 : null,
+    peer: dm.has(k) ? dm.get(k)! * 100 : null,
+  }));
+}
+
 /** Per-UTC-day funding for each exchange. Only days present on BOTH sides, excluding today (incomplete). */
 export function dailySpread(b: Ev[], d: Ev[]) {
   const bm = bucket(b), dm = bucket(d), today = dayKey(Date.now());

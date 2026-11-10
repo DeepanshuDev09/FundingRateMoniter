@@ -1,5 +1,5 @@
 import { getPairDetail } from "@/lib/queries";
-import { BYBIT_DIR_A, chartSeries, DIR_A } from "@/lib/calc";
+import { BYBIT_DIR_A, chartSeries, dailyFunding, DIR_A } from "@/lib/calc";
 export const dynamic = "force-dynamic";
 export async function GET(req: Request, { params }: { params: Promise<{ base: string }> }) {
   const { base } = await params;
@@ -11,7 +11,8 @@ export async function GET(req: Request, { params }: { params: Promise<{ base: st
     const series = bybit
       ? chartSeries(d.binance, d.bybit, d.pair.y_direction ?? d.pair.y_live_direction ?? BYBIT_DIR_A, ["binance", "bybit"])
       : chartSeries(d.binance, d.delta, d.pair.direction ?? DIR_A);
-    return Response.json({ pair: d.pair, series, market: bybit ? "bybit" : "delta" },
+    const funding = bybit ? dailyFunding(d.binance, d.bybit) : dailyFunding(d.binance, d.delta);
+    return Response.json({ pair: d.pair, series, funding, market: bybit ? "bybit" : "delta" },
       { headers: { "Cache-Control": "public, s-maxage=30, stale-while-revalidate=120" } });
   } catch (e: any) {
     return Response.json({ error: String(e.message) }, { status: 500 });

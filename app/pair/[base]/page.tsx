@@ -68,6 +68,8 @@ export default function PairPage({ params, searchParams }: { params: Promise<{ b
         {!series.length && <p className="muted">History for this pair hasn&apos;t synced yet. It joins the rotation automatically.</p>}
       </div>
 
+      <DailyFundingTable key={`${base}-${peer}`} funding={data.funding ?? []} peer={peer} />
+
       <div className="grid">
         <div className="box">
           <h2>Right now</h2>
@@ -91,6 +93,42 @@ export default function PairPage({ params, searchParams }: { params: Promise<{ b
       <p className="note" style={{ marginTop: 14 }}>
         The projection assumes the same funding repeats. It won&apos;t, so treat it as a rough guide.
       </p>
+    </div>
+  );
+}
+
+function DailyFundingTable({ funding, peer }: { funding: { date: string; binance: number | null; peer: number | null }[]; peer: string }) {
+  const currentMonth = new Date().toISOString().slice(0, 7);
+  const [month, setMonth] = useState(funding[funding.length - 1]?.date.slice(0, 7) ?? currentMonth);
+  const daysInMonth = new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0)).getUTCDate();
+  const byDate = new Map(funding.map((row) => [row.date, row]));
+  const rows = Array.from({ length: daysInMonth }, (_, i) => {
+    const date = `${month}-${String(i + 1).padStart(2, "0")}`;
+    return { date, ...byDate.get(date) };
+  });
+  const firstMonth = funding[0]?.date.slice(0, 7);
+  const formatRate = (rate: number | null | undefined) => rate == null ? "-" : `${rate.toFixed(4)}%`;
+
+  return (
+    <div className="box" style={{ marginTop: 14 }}>
+      <div className="bar" style={{ justifyContent: "space-between" }}>
+        <h2>Daily funding by date (%)</h2>
+        <label>Month<input type="month" value={month} min={firstMonth} max={currentMonth} onChange={(e) => setMonth(e.target.value || currentMonth)} /></label>
+      </div>
+      <div className="tablebox">
+        <table className="daily-funding-table">
+          <thead><tr><th>Date (UTC)</th><th className="num">Binance</th><th className="num">{peer}</th></tr></thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={row.date}>
+                <td>{row.date}</td>
+                <td className="num">{formatRate(row.binance)}</td>
+                <td className="num">{formatRate(row.peer)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
