@@ -97,7 +97,7 @@ export default function PairPage({ params, searchParams }: { params: Promise<{ b
   );
 }
 
-function DailyFundingTable({ funding, peer }: { funding: { date: string; binance: number | null; peer: number | null }[]; peer: string }) {
+function DailyFundingTable({ funding, peer }: { funding: { date: string; binance: number | null; peer: number | null; net: number | null }[]; peer: string }) {
   const currentMonth = new Date().toISOString().slice(0, 7);
   const [month, setMonth] = useState(funding[funding.length - 1]?.date.slice(0, 7) ?? currentMonth);
   const daysInMonth = new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0)).getUTCDate();
@@ -106,8 +106,13 @@ function DailyFundingTable({ funding, peer }: { funding: { date: string; binance
     const date = `${month}-${String(i + 1).padStart(2, "0")}`;
     return { date, ...byDate.get(date) };
   });
+  const dailyReturns = rows.map((row) => row.net).filter((value): value is number => value != null);
+  const monthlyTotal = dailyReturns.reduce((total, value) => total + value, 0);
+  const averagePerDay = dailyReturns.length ? monthlyTotal / dailyReturns.length : null;
   const firstMonth = funding[0]?.date.slice(0, 7);
   const formatRate = (rate: number | null | undefined) => rate == null ? "-" : `${rate.toFixed(4)}%`;
+  const monthLabel = new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)) - 1, 1))
+    .toLocaleDateString("en", { month: "long", year: "numeric", timeZone: "UTC" });
 
   return (
     <div className="box" style={{ marginTop: 14 }}>
@@ -115,20 +120,32 @@ function DailyFundingTable({ funding, peer }: { funding: { date: string; binance
         <h2>Daily funding by date (%)</h2>
         <label>Month<input type="month" value={month} min={firstMonth} max={currentMonth} onChange={(e) => setMonth(e.target.value || currentMonth)} /></label>
       </div>
+      <div className="monthly-summary" aria-label={`${monthLabel} return summary`}>
+        <div className="monthly-summary-item">
+          <span>Average daily return ({dailyReturns.length} data days)</span>
+          <b className={averagePerDay == null ? "" : averagePerDay >= 0 ? "gain" : "loss"}>{formatRate(averagePerDay)}</b>
+        </div>
+        <div className="monthly-summary-item">
+          <span>Total return in {monthLabel}</span>
+          <b className={monthlyTotal >= 0 ? "gain" : "loss"}>{dailyReturns.length ? formatRate(monthlyTotal) : "-"}</b>
+        </div>
+      </div>
       <div className="tablebox">
         <table className="daily-funding-table">
-          <thead><tr><th>Date (UTC)</th><th className="num">Binance</th><th className="num">{peer}</th></tr></thead>
+          <thead><tr><th>Date (UTC)</th><th className="num">Binance</th><th className="num">{peer}</th><th className="num">Net return</th></tr></thead>
           <tbody>
             {rows.map((row) => (
               <tr key={row.date}>
                 <td>{row.date}</td>
                 <td className="num">{formatRate(row.binance)}</td>
                 <td className="num">{formatRate(row.peer)}</td>
+                <td className={`num ${row.net == null ? "" : row.net >= 0 ? "gain" : "loss"}`}>{formatRate(row.net)}</td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+      <p className="note" style={{ margin: "10px 2px 0" }}>Returns follow the selected hedge direction. Monthly averages include only days with funding data from both exchanges; trading fees are not deducted.</p>
     </div>
   );
 }

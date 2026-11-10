@@ -28,7 +28,7 @@ button { cursor: pointer; } button:hover { background: var(--hover); }
 
 .tablebox { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; min-width: 980px; }
-table.daily-funding-table { min-width: 480px; }
+table.daily-funding-table { min-width: 600px; }
 th, td { padding: 9px 12px; border-bottom: 1px solid var(--line); text-align: left; }
 th { font-size: 12.5px; font-weight: 600; color: var(--muted); cursor: pointer; user-select: none; white-space: nowrap;
   position: sticky; top: 0; background: var(--panel); }
@@ -54,13 +54,18 @@ tbody tr:last-child td { border-bottom: 0; }
 .fact { padding: 12px 14px; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); }
 .fact b { display: block; font-size: 20px; font-variant-numeric: tabular-nums; }
 .fact span { font-size: 12.5px; color: var(--muted); }
+.monthly-summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0; margin: 0 0 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }
+.monthly-summary-item { display: flex; flex-direction: column; gap: 4px; padding: 12px 14px; }
+.monthly-summary-item + .monthly-summary-item { border-left: 1px solid var(--line); }
+.monthly-summary-item span { font-size: 12.5px; color: var(--muted); }
+.monthly-summary-item b { font-size: 20px; font-variant-numeric: tabular-nums; }
 .row { display: flex; justify-content: space-between; gap: 12px; padding: 5px 0; border-bottom: 1px dashed var(--line); }
 .row:last-child { border-bottom: 0; }
 .fields { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px; }
 .fields label { display: flex; flex-direction: column; gap: 3px; font-size: 12.5px; color: var(--muted); }
 .back { display: inline-block; margin-bottom: 10px; color: var(--muted); text-decoration: none; }
 .back:hover { color: var(--ink); }
-@media (max-width: 640px) { h1 { font-size: 22px; } .fields { grid-template-columns: 1fr; } }
+@media (max-width: 640px) { h1 { font-size: 22px; } .fields { grid-template-columns: 1fr; } .monthly-summary-item { padding: 10px; } .monthly-summary-item b { font-size: 17px; } }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
 
 .tabs { display: flex; gap: 6px; margin: 0 0 14px; border-bottom: 1px solid var(--line); }

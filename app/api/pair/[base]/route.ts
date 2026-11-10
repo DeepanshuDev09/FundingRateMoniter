@@ -8,10 +8,15 @@ export async function GET(req: Request, { params }: { params: Promise<{ base: st
     if (!d) return Response.json({ error: "unknown pair" }, { status: 404 });
     // ?market=bybit shows the Binance <-> Bybit view of the same pair.
     const bybit = new URL(req.url).searchParams.get("market") === "bybit";
+    const direction = bybit
+      ? d.pair.y_direction ?? d.pair.y_live_direction ?? BYBIT_DIR_A
+      : d.pair.direction ?? DIR_A;
     const series = bybit
-      ? chartSeries(d.binance, d.bybit, d.pair.y_direction ?? d.pair.y_live_direction ?? BYBIT_DIR_A, ["binance", "bybit"])
-      : chartSeries(d.binance, d.delta, d.pair.direction ?? DIR_A);
-    const funding = bybit ? dailyFunding(d.binance, d.bybit) : dailyFunding(d.binance, d.delta);
+      ? chartSeries(d.binance, d.bybit, direction, ["binance", "bybit"])
+      : chartSeries(d.binance, d.delta, direction);
+    const funding = bybit
+      ? dailyFunding(d.binance, d.bybit, direction)
+      : dailyFunding(d.binance, d.delta, direction);
     return Response.json({ pair: d.pair, series, funding, market: bybit ? "bybit" : "delta" },
       { headers: { "Cache-Control": "public, s-maxage=30, stale-while-revalidate=120" } });
   } catch (e: any) {
