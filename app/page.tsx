@@ -14,6 +14,10 @@ const COLS: { key: string; label: string; num?: boolean; get: (r: Row) => any; r
   { key: "net30", label: "30d net", num: true, get: (r) => r.net30, render: (r) => <span className={cls(r.net30)}>{signedPct(r.net30)}</span> },
   { key: "net90", label: "3-mo net", num: true, get: (r) => r.net90, render: (r) => <span className={cls(r.net90)}>{signedPct(r.net90)}</span> },
   { key: "ret365", label: "1y gross", num: true, get: (r) => r.ret365, render: (r) => <span className={cls(r.ret365)}>{signedPct(r.ret365)}</span> },
+  { key: "dyn_net30", label: "Flip 30d net", num: true, get: (r) => r.dyn_net30, render: (r) => <span className={cls(r.dyn_net30)}>{signedPct(r.dyn_net30)}</span> },
+  { key: "dyn_net90", label: "Flip 3-mo net", num: true, get: (r) => r.dyn_net90, render: (r) => <span className={cls(r.dyn_net90)}>{signedPct(r.dyn_net90)}</span> },
+  { key: "dyn_net365", label: "Flip 1y net", num: true, get: (r) => r.dyn_net365, render: (r) => <span className={cls(r.dyn_net365)}>{signedPct(r.dyn_net365)}</span> },
+  { key: "dyn_flips", label: "Flips (1y)", num: true, get: (r) => r.dyn_flips, render: (r) => r.dyn_flips ?? "-" },
   { key: "apr", label: "30d APR", num: true, get: (r) => r.apr, render: (r) => pct(r.apr, 0) },
   { key: "trend3_apr", label: "3d APR", num: true, get: (r) => r.trend3_apr,
     render: (r) => <span className={r.trend3_apr != null && r.apr != null && r.trend3_apr < r.apr * 0.5 ? "warn" : ""}>{pct(r.trend3_apr, 0)}</span> },
@@ -88,7 +92,7 @@ export default function Home() {
       <h1>Funding spread monitor</h1>
       <p className="sub">
         Funding earned by holding opposite perpetual positions on Delta Exchange India and Binance Futures.
-        Returns are on one leg&apos;s notional, before slippage and basis moves; net subtracts four taker fees.
+        Returns are on one leg&apos;s notional, before slippage and basis moves; net subtracts four taker fees. The \"Flip\" columns swap long and short automatically after a losing funding streak and charge one extra round-trip fee per flip.
       </p>
 
       <div className="tabs" role="tablist">
@@ -197,6 +201,9 @@ const BYBIT_COLS: { key: string; label: string; get: (r: Row) => any; render: (r
   { key: "y_ret7", label: "7d", get: r => r.y_ret7, render: r => <span className={cls(r.y_ret7)}>{signedPct(r.y_ret7)}</span> },
   { key: "y_net30", label: "30d net", get: r => r.y_net30, render: r => <span className={cls(r.y_net30)}>{signedPct(r.y_net30)}</span> },
   { key: "y_net90", label: "3-mo net", get: r => r.y_net90, render: r => <span className={cls(r.y_net90)}>{signedPct(r.y_net90)}</span> },
+  { key: "y_dyn_net30", label: "Flip 30d net", get: r => r.y_dyn_net30, render: r => <span className={cls(r.y_dyn_net30)}>{signedPct(r.y_dyn_net30)}</span> },
+  { key: "y_dyn_net90", label: "Flip 3-mo net", get: r => r.y_dyn_net90, render: r => <span className={cls(r.y_dyn_net90)}>{signedPct(r.y_dyn_net90)}</span> },
+  { key: "y_dyn_flips", label: "Flips (1y)", get: r => r.y_dyn_flips, render: r => r.y_dyn_flips ?? "-" },
   { key: "y_apr", label: "30d APR", get: r => r.y_apr, render: r => pct(r.y_apr, 0) },
   { key: "y_consistency", label: "Positive days", get: r => r.y_consistency, render: r => pct(r.y_consistency, 0) },
   { key: "y_basis", label: "Basis", get: r => r.y_basis, render: r => signedPct(r.y_basis) },

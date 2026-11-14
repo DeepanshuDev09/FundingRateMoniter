@@ -49,3 +49,16 @@ browser-side watchlist, CSV export, dark mode. Not included: user accounts, per-
 - Open `/api/debug/bybit` (header `x-admin-password`) to see which Bybit host answers from your Vercel region. The app tries `api.bybit.com`, then `api.bytick.com`; set `BYBIT_BASE` to force another host.
 - If both fail with 403, change the region in `vercel.json` (try `sin1`) and redeploy. A Bybit failure no longer stops the sync: Binance/Delta data is still saved and the Admin log shows a `warning` line.
 - Older databases are upgraded automatically on first read, so a stale schema no longer breaks `/api/pairs` or `/api/recommend`.
+
+
+## Dynamic flip returns
+
+The normal return columns hold one fixed direction (picked from the last 30 days, which is hindsight). The **Flip** columns replay every funding payment and change sides automatically:
+
+- It starts as **Short Binance / Long peer** (`FLIP_START=B` for the opposite).
+- The net of the current direction is added up in blocks of `FLIP_BLOCK_HOURS` (default 8). A block that nets negative extends a **losing streak**; a block that nets zero or positive resets it.
+- When the streak reaches `-FLIP_THRESHOLD` (default `0.0025` = 0.25% of notional), long and short swap and the streak restarts at 0. Earlier profits do not count.
+- Net figures charge one round-trip fee (four fills) for entry and exit plus one per flip.
+- Stored during each sync in `pair_stats` / `bybit_pair_stats` (`dyn_*` columns, added automatically). The pair page recomputes it live and shows the flip log and a second cumulative line.
+
+Limits: flips are assumed instant with no slippage; only the period where both exchanges have history is used; it needs enough funding history per pair; Delta history is sampled by `DELTA_FUNDING_INTERVAL_HOURS` (see the note on 4-hour payments below).

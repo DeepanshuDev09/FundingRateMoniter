@@ -25,7 +25,9 @@ export function ensureSchema(): Promise<void> {
                  AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='live_snapshot' AND column_name='y_oi')
                  AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='pair_map' AND column_name='y_interval')
                  AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='pair_stats' AND column_name='ret365')
-                 AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='bybit_pair_stats' AND column_name='ret365')) AS ok`);
+                 AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='bybit_pair_stats' AND column_name='ret365')
+                 AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='pair_stats' AND column_name='dyn_net365')
+                 AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='bybit_pair_stats' AND column_name='dyn_net365')) AS ok`);
       if (!r?.ok) for (const stmt of SCHEMA) await db().query(stmt);
     })().catch((e) => { schemaReady = null; throw e; });
   }
@@ -36,6 +38,10 @@ export async function q(text: string, params: any[] = []): Promise<any[]> {
   await ensureSchema();
   return db().query(text, params);
 }
+
+const DYN_COLS = ["dyn_direction text", "dyn_flips int", "dyn_flips30 int", "dyn_ret30 double precision", "dyn_net30 double precision",
+  "dyn_ret90 double precision", "dyn_net90 double precision", "dyn_ret365 double precision", "dyn_net365 double precision"];
+const dynAlters = ["pair_stats", "bybit_pair_stats"].flatMap((t) => DYN_COLS.map((c) => `ALTER TABLE ${t} ADD COLUMN IF NOT EXISTS ${c}`));
 
 export const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS pair_map (
@@ -94,4 +100,5 @@ export const SCHEMA = [
   `ALTER TABLE bybit_pair_stats ADD COLUMN IF NOT EXISTS ret365 double precision`,
   `ALTER TABLE bybit_pair_stats ADD COLUMN IF NOT EXISTS net365 double precision`,
   `ALTER TABLE bybit_pair_stats ADD COLUMN IF NOT EXISTS days365 int`,
+  ...dynAlters,
 ];

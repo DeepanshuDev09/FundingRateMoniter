@@ -4,8 +4,10 @@ import { perDay } from "./calc";
 export async function getPairs() {
   const rows = await q(
     `SELECT p.base,p.binance_symbol,p.delta_symbol,p.b_mult,p.d_mult,p.coindcx_pair,p.c_interval,p.bybit_symbol,p.y_mult,p.y_interval AS mapped_y_interval,
+            s.dyn_direction,s.dyn_flips,s.dyn_flips30,s.dyn_ret30,s.dyn_net30,s.dyn_ret90,s.dyn_net90,s.dyn_ret365,s.dyn_net365,
             s.direction,s.days,s.days90,s.days365,s.ret7,s.ret30,s.net30,s.ret90,s.net90,s.ret365,s.net365,s.apr,s.trend3_apr,s.consistency,s.spread_std,s.sign_flips,s.breakeven_days,
             l.c_rate,l.c_mark,l.b_rate,l.d_rate,l.b_interval,l.d_interval,l.b_mark,l.d_mark,l.b_vol,l.d_vol,l.d_oi,l.y_rate,l.y_interval,l.y_mark,l.y_vol,l.y_oi,l.ts AS live_ts,
+            y.dyn_direction AS y_dyn_direction,y.dyn_flips AS y_dyn_flips,y.dyn_flips30 AS y_dyn_flips30,y.dyn_ret30 AS y_dyn_ret30,y.dyn_net30 AS y_dyn_net30,y.dyn_ret90 AS y_dyn_ret90,y.dyn_net90 AS y_dyn_net90,y.dyn_ret365 AS y_dyn_ret365,y.dyn_net365 AS y_dyn_net365,
             y.direction AS y_direction,y.days AS y_days,y.days90 AS y_days90,y.days365 AS y_days365,y.ret7 AS y_ret7,y.ret30 AS y_ret30,y.net30 AS y_net30,y.ret90 AS y_ret90,y.net90 AS y_net90,y.ret365 AS y_ret365,y.net365 AS y_net365,y.apr AS y_apr,y.trend3_apr AS y_trend3_apr,y.consistency AS y_consistency,y.spread_std AS y_spread_std,y.sign_flips AS y_sign_flips,y.breakeven_days AS y_breakeven_days,
             ss.last_synced_at
        FROM pair_map p LEFT JOIN pair_stats s ON s.base=p.base LEFT JOIN bybit_pair_stats y ON y.base=p.base LEFT JOIN live_snapshot l ON l.base=p.base

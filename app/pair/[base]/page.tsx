@@ -43,6 +43,12 @@ export default function PairPage({ params, searchParams }: { params: Promise<{ b
         <div className="fact"><b className={cls(pk("net90"))}>{signedPct(pk("net90"))}</b><span>3-month net of fees{pk("days90") && pk("days90") < 85 ? ` (${pk("days90")} days of data)` : ""}</span></div>
         <div className="fact"><b className={cls(pk("ret365"))}>{signedPct(pk("ret365"))}</b><span>1y gross return{pk("days365") && pk("days365") < 350 ? ` (${pk("days365")} days of data)` : ""}</span></div>
         <div className="fact"><b className={cls(pk("ret30"))}>{signedPct(pk("ret30"))}</b><span>30d gross</span></div>
+        {data.dyn && <>
+          <div className="fact"><b className={cls(data.dyn.net30)}>{signedPct(data.dyn.net30)}</b><span>30d net, flipping sides ({data.dyn.flips30} flips)</span></div>
+          <div className="fact"><b className={cls(data.dyn.net90)}>{signedPct(data.dyn.net90)}</b><span>3-month net, flipping sides</span></div>
+          <div className="fact"><b className={cls(data.dyn.net365)}>{signedPct(data.dyn.net365)}</b><span>1y net, flipping sides ({data.dyn.flips} flips)</span></div>
+          <div className="fact"><b>{dirLabel(data.dyn.direction)}</b><span>Side the flip rule holds now</span></div>
+        </>}
         <div className="fact"><b>{pct(pk("apr"), 0)}</b><span>30d APR (on notional)</span></div>
         <div className="fact"><b>{pct(pk("trend3_apr"), 0)}</b><span>Last 3 days APR</span></div>
         <div className="fact"><b>{pct(pk("consistency"), 0)}</b><span>Positive days</span></div>
@@ -61,12 +67,15 @@ export default function PairPage({ params, searchParams }: { params: Promise<{ b
               <Legend />
               <Bar dataKey="binance" name="Binance funding/day" fill="#d99a2b" />
               <Bar dataKey={peerKey} name={`${peer} funding/day`} fill="#4b8fd6" />
-              <Line type="monotone" dataKey="cumulative" name="Cumulative hedge earnings" stroke="var(--gain)" strokeWidth={2.5} dot={false} />
+              <Line type="monotone" dataKey="cumulative" name="Cumulative, fixed best side" stroke="var(--gain)" strokeWidth={2.5} dot={false} />
+              <Line type="monotone" dataKey="dyn_cumulative" name="Cumulative, flipping sides (gross)" stroke="#a66bd6" strokeWidth={2.5} dot={false} />
             </ComposedChart>
           </ResponsiveContainer>
         </div>
         {!series.length && <p className="muted">History for this pair hasn&apos;t synced yet. It joins the rotation automatically.</p>}
       </div>
+
+      {data.dyn && <FlipLog dyn={data.dyn} />}
 
       <DailyFundingTable key={`${base}-${peer}`} funding={data.funding ?? []} peer={peer} />
 
@@ -203,6 +212,27 @@ function Liquidation({ entry }: { entry: number }) {
       <div className="row"><span>Long liquidates near</span><span className="num loss">{price ? longLiq.toPrecision(6) : "-"} ({((1 / lev - m) * 100).toFixed(1)}% below)</span></div>
       <div className="row"><span>Short liquidates near</span><span className="num loss">{price ? shortLiq.toPrecision(6) : "-"} ({((1 / lev - m) * 100).toFixed(1)}% above)</span></div>
       <p className="note">Simplified isolated-margin estimate. Real maintenance margin tiers and fees differ per exchange and position size. The hedge is delta-neutral, but the leg that moves against you can still liquidate, so keep spare margin on both exchanges.</p>
+    </div>
+  );
+}
+
+function FlipLog({ dyn }: { dyn: any }) {
+  const log: { date: string; direction: string; streak: number }[] = [...dyn.flipLog].reverse();
+  return (
+    <div className="box" style={{ marginTop: 14 }}>
+      <h2>Flip rule: side changes</h2>
+      <p className="muted" style={{ margin: "0 0 8px" }}>
+        Starts as {dirLabel(dyn.start)}. Swaps sides when funding paid in a row (blocks of {" "}8h netting negative) reaches the threshold, then starts counting again.
+        {" "}Flips last year: {dyn.flips}. Every flip is charged one round-trip fee in the net figures above. History used: {dyn.days} days.
+      </p>
+      {log.length ? (
+        <div className="tablebox">
+          <table>
+            <thead><tr><th>Time (UTC)</th><th>New side</th><th className="num">Losing streak that triggered it</th></tr></thead>
+            <tbody>{log.slice(0, 30).map((f) => <tr key={f.date}><td>{f.date}</td><td>{dirLabel(f.direction)}</td><td className="num loss">{signedPct(f.streak, 3)}</td></tr>)}</tbody>
+          </table>
+        </div>
+      ) : <p className="muted">No flips in the available history.</p>}
     </div>
   );
 }

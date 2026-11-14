@@ -1,5 +1,5 @@
 import { q } from "./db";
-import { analyze, BYBIT_DIR_A, BYBIT_DIR_B } from "./calc";
+import { analyze, BYBIT_DIR_A, BYBIT_DIR_B, dynamicFlip, roundTripFeeFor, type DynResult } from "./calc";
 import { binanceHistory, binanceLive, binanceSymbols, bybitHistory, bybitLive, bybitSymbols, coindcxFundingHours, coindcxPrices, deltaHistory, deltaProducts, deltaTickers, normBase } from "./exchanges";
 
 const DAY = 86400000;
@@ -189,6 +189,13 @@ export async function syncHistory(n: number, since: string, market?: SyncMarket)
   };
 }
 
+/** Saves the dynamic-flip returns next to the normal stats (UPDATE only, the INSERT above creates the row). */
+async function saveDyn(table: "pair_stats" | "bybit_pair_stats", base: string, r: DynResult | null) {
+  if (!r) return;
+  await q(`UPDATE ${table} SET dyn_direction=$2,dyn_flips=$3,dyn_flips30=$4,dyn_ret30=$5,dyn_net30=$6,dyn_ret90=$7,dyn_net90=$8,dyn_ret365=$9,dyn_net365=$10 WHERE base=$1`,
+    [base, r.direction, r.flips, r.flips30, r.ret30, r.net30, r.ret90, r.net90, r.ret365, r.net365]);
+}
+
 export async function recomputeStats(base: string) {
   const rows = await q(
     `SELECT exchange, EXTRACT(EPOCH FROM ts)*1000 AS ts, rate FROM funding_history
@@ -212,4 +219,6 @@ export async function recomputeStats(base: string) {
      ON CONFLICT (base) DO UPDATE SET direction=$2,days=$3,ret7=$4,ret30=$5,net30=$6,avg_daily=$7,apr=$8,trend3_apr=$9,consistency=$10,spread_std=$11,sign_flips=$12,breakeven_days=$13,ret90=$14,net90=$15,days90=$16,ret365=$17,net365=$18,days365=$19,updated_at=now()`,
     [base, y.direction, y.days, y.ret7, y.ret30, y.net30, y.avg_daily, y.apr, y.trend3_apr, y.consistency, y.spread_std, y.sign_flips, y.breakeven_days, y.ret90, y.net90, y.days90, y.ret365, y.net365, y.days365],
   );
+  await saveDyn("pair_stats", base, dynamicFlip(mk("binance"), mk("delta"), feeRoundTrip()));
+  await saveDyn("bybit_pair_stats", base, dynamicFlip(mk("binance"), mk("bybit"), roundTripFeeFor("bybit"), [BYBIT_DIR_A, BYBIT_DIR_B]));
 }
