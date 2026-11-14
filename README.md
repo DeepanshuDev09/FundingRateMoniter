@@ -62,3 +62,12 @@ The normal return columns hold one fixed direction (picked from the last 30 days
 - Stored during each sync in `pair_stats` / `bybit_pair_stats` (`dyn_*` columns, added automatically). The pair page recomputes it live and shows the flip log and a second cumulative line.
 
 Limits: flips are assumed instant with no slippage; only the period where both exchanges have history is used; it needs enough funding history per pair; Delta history is sampled by `DELTA_FUNDING_INTERVAL_HOURS` (see the note on 4-hour payments below).
+
+
+## Dynamic-side recommendation
+
+`lib/recommendDynamic.ts` runs inside the existing admin step "Run recommendation analysis" (no new button). For each pair it replays the real flip rule on the real payments and decides **Use dynamic side**, **Use fixed side** (one direction nearly always wins) or **Avoid dynamic**.
+
+- Test windows: 120 days, a new one every 10 days; each starts on the side the previous 30 days favoured (no hindsight). Gross is shrunk by 20% and each entry/exit/flip pays fees plus slippage.
+- A pair passes only if it has at least 3 regime changes in 180 days, regimes last about 4 days or more, no more than 60% of the gain over a fixed side comes from 3 months, break-even per flip is at least 3x the real flip cost, at least 75% of 12 threshold/block settings stay profitable, at least 70% of windows are profitable, it beats a fixed side, and volume is at least $1M.
+- Results are stored in `pair_dyn_features` and `bybit_pair_dyn_features` (created automatically) and shown on the Recommend page. Optional env: `DYN_MAX_LEVERAGE` (default 3).

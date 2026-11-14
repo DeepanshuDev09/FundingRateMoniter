@@ -26,6 +26,7 @@ export function ensureSchema(): Promise<void> {
                  AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='pair_map' AND column_name='y_interval')
                  AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='pair_stats' AND column_name='ret365')
                  AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='bybit_pair_stats' AND column_name='ret365')
+                 AND to_regclass('pair_dyn_features') IS NOT NULL AND to_regclass('bybit_pair_dyn_features') IS NOT NULL
                  AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='pair_stats' AND column_name='dyn_net365')
                  AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='bybit_pair_stats' AND column_name='dyn_net365')) AS ok`);
       if (!r?.ok) for (const stmt of SCHEMA) await db().query(stmt);
@@ -78,6 +79,8 @@ export const SCHEMA = [
      base text NOT NULL, fold int NOT NULL, m30 double precision, m90 double precision,
      md90 double precision, cons double precision, fwd double precision, PRIMARY KEY (base, fold))`,
   `CREATE TABLE IF NOT EXISTS wf_summary (id int PRIMARY KEY, data jsonb NOT NULL, updated_at timestamptz DEFAULT now())`,
+  `CREATE TABLE IF NOT EXISTS pair_dyn_features (base text PRIMARY KEY, data jsonb NOT NULL, updated_at timestamptz DEFAULT now())`,
+  `CREATE TABLE IF NOT EXISTS bybit_pair_dyn_features (base text PRIMARY KEY, data jsonb NOT NULL, updated_at timestamptz DEFAULT now())`,
   `CREATE TABLE IF NOT EXISTS bybit_pair_features (base text PRIMARY KEY, data jsonb NOT NULL, updated_at timestamptz DEFAULT now())`,
   `CREATE TABLE IF NOT EXISTS bybit_wf_obs (
      base text NOT NULL, fold int NOT NULL, m30 double precision, m90 double precision,

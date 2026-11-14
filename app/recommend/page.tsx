@@ -49,6 +49,104 @@ function Table({ rows, alt, q = "" }: { rows: any[]; alt: number; q?: string }) 
   );
 }
 
+const MODE: Record<string, { label: string; cls: string }> = {
+  dynamic: { label: "Use dynamic side", cls: "gain" },
+  fixed: { label: "Use fixed side", cls: "warn" },
+  avoid: { label: "Avoid dynamic", cls: "loss" },
+};
+
+function DynTable({ rows, alt, q = "" }: { rows: any[]; alt: number; q?: string }) {
+  const paged = usePaged(rows, String(rows.length));
+  return (
+    <>
+    <div className="tablebox">
+      <table style={{ minWidth: 1240 }}>
+        <thead>
+          <tr>
+            <th>Pair</th><th>Side now</th>
+            <th className="num">Poor case</th><th className="num">Typical</th><th className="num">Good case</th>
+            <th className="num">Chance of profit</th><th className="num">Beats fixed side</th>
+            <th className="num">Flips / 30d</th><th className="num">Regime changes</th>
+            <th className="num">Break-even vs flip cost</th><th className="num">Gain from top 3 months</th>
+            <th className="num">Holds for other settings</th><th className="num">Yearly return on capital</th><th>Notes</th>
+          </tr>
+        </thead>
+        <tbody>
+          {paged.slice.map((r) => (
+            <tr key={r.base}>
+              <td><Link className="pairname" href={`/pair/${r.base}${q}`}>{r.base}</Link></td>
+              <td className="dir">{dirLabel(r.direction_now)}</td>
+              <td className={`num ${r.p10 >= 0 ? "gain" : "loss"}`}>{signedPct(r.p10)}</td>
+              <td className={`num ${r.p50 >= 0 ? "gain" : "loss"}`}>{signedPct(r.p50)}</td>
+              <td className="num">{signedPct(r.p90)}</td>
+              <td className="num">{pct(r.p_win, 0)}</td>
+              <td className="num">{pct(r.beat_fixed, 0)}</td>
+              <td className="num">{r.flips_30d.toFixed(1)}</td>
+              <td className="num">{r.regime_changes}</td>
+              <td className="num">{r.headroom == null ? "-" : `${r.headroom.toFixed(1)}x`}</td>
+              <td className="num">{pct(r.concentration, 0)}</td>
+              <td className="num">{r.robust}/{r.robust_total}</td>
+              <td className={`num ${r.ret_cap * 100 > alt ? "gain" : "warn"}`}>{pct(r.ret_cap, 0)}</td>
+              <td className="note">{r.flags?.length ? r.flags.join("; ") : "-"}</td>
+            </tr>
+          ))}
+          {!rows.length && <tr><td colSpan={14} className="empty">No pair passes every dynamic-side test yet.</td></tr>}
+        </tbody>
+      </table>
+    </div>
+    <Pager {...paged} />
+    </>
+  );
+}
+
+function DynOthers({ rows }: { rows: any[] }) {
+  const paged = usePaged(rows, String(rows.length));
+  return (
+    <details style={{ marginTop: 12 }}>
+      <summary className="muted">Pairs that did not pass ({rows.length})</summary>
+      <div className="tablebox" style={{ marginTop: 8 }}>
+        <table style={{ minWidth: 720 }}>
+          <thead><tr><th>Pair</th><th>Advice</th><th>Why</th></tr></thead>
+          <tbody>
+            {paged.slice.map((r: any) => (
+              <tr key={r.base}>
+                <td>{r.base}</td>
+                <td className={MODE[r.mode]?.cls}>{MODE[r.mode]?.label ?? r.mode}</td>
+                <td className="note">{(r.reasons ?? []).join("; ")}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <Pager {...paged} />
+    </details>
+  );
+}
+
+function DynMarket({ title, peer, m, err, alt }: { title: string; peer: string; m: any; err?: string | null; alt: number }) {
+  const q = peer === "Bybit" ? "?market=bybit" : "";
+  if (err) return <section style={{ marginTop: 30 }}><h2>{title}: dynamic side</h2><div className="err"><b>Couldn&apos;t load this analysis.</b> {err}</div></section>;
+  if (!m) return <section style={{ marginTop: 30 }}><h2>{title}: dynamic side</h2><div className="err">No dynamic-side analysis yet. In Admin, run &ldquo;Run recommendation analysis&rdquo; for this market.</div></section>;
+  const byBase = Object.fromEntries(m.picks.map((x: any) => [x.base, x]));
+  const basket = m.basket.map((b: string) => byBase[b]).filter(Boolean);
+  return (
+    <section style={{ marginTop: 30 }}>
+      <h2>{title}: dynamic side (flip long and short)</h2>
+      <p className="note" style={{ marginTop: 0 }}>
+        For each pair this tests the flip rule on its real payments: start on the side the previous 30 days favoured, then swap sides when a losing streak reaches {pct(m.settings.threshold, 2)}
+        (blocks of {m.settings.blockHours}h). {m.counts.dynamic} pairs suit the dynamic side, {m.counts.fixed} suit a fixed side (one direction nearly always wins), {m.counts.avoid} should avoid it.
+        Last run {new Date(m.as_of).toLocaleDateString()}.
+      </p>
+      <h3>Core picks: diversified basket</h3>
+      <p className="note" style={{ marginTop: 0 }}>Best typical result first, skipping pairs whose daily spread moves together with one already chosen. Max 8. Leverage is capped at {m.settings.maxLeverage}x because each flip moves the short to the other exchange.</p>
+      <DynTable rows={basket} alt={alt} q={q} />
+      <h3 style={{ marginTop: 22 }}>All pairs that passed ({m.picks.length})</h3>
+      <DynTable rows={m.picks} alt={alt} q={q} />
+      {!!m.others.length && <DynOthers rows={m.others} />}
+    </section>
+  );
+}
+
 function Validation({ v }: { v: any }) {
   if (!v) return null;
   return (
@@ -157,12 +255,19 @@ export default function Recommend() {
       </div>
 
       <Market title="Binance ↔ Delta" peer="Delta" m={data.delta} err={data.errors?.delta} alt={alt} />
+      <DynMarket title="Binance ↔ Delta" peer="Delta" m={data.dynDelta} err={data.errors?.dynDelta} alt={alt} />
       <Market title="Binance ↔ Bybit" peer="Bybit" m={data.bybit} err={data.errors?.bybit} alt={alt} />
+      <DynMarket title="Binance ↔ Bybit" peer="Bybit" m={data.dynBybit} err={data.errors?.dynBybit} alt={alt} />
 
       <p className="note" style={{ marginTop: 16 }}>
         <b>How to read it:</b> Poor / Typical / Good are the 10th, 50th and 90th percentile net return over {settings.horizon} days on one leg&apos;s notional,
         from 500 resampled histories, after a {pct(1 - settings.shrink, 0)} haircut, fees and slippage. Yearly return on capital assumes the suggested leverage,
         with capital split across both exchanges. Max leverage keeps liquidation about 20% further away than the worst 4-month price move of the past year, assuming no margin top-ups.
+      </p>
+      <p className="note">
+        <b>Dynamic-side tables:</b> test windows start every 10 days and overlap, so treat them as a rough check. &ldquo;Beats fixed side&rdquo; is the share of windows where flipping earned more than staying on the starting side.
+        &ldquo;Break-even vs flip cost&rdquo; is how many times larger the average gain per flip is than its cost. &ldquo;Gain from top 3 months&rdquo; shows how much of the benefit over a fixed side came from just three months.
+        &ldquo;Holds for other settings&rdquo; counts how many of 12 threshold and block-length combinations are still profitable. Flips are assumed instant with no extra slippage beyond the estimate.
       </p>
     </div>
   );

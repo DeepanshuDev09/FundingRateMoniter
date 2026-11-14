@@ -102,7 +102,10 @@ export type DynResult = {
   flips: number; flips30: number; flips90: number;
   ret7: number; ret30: number; ret90: number; ret365: number;   // funding earned, gross, as decimals of one leg's notional
   net30: number; net90: number; net365: number;                 // minus entry+exit fees once, and one round-trip fee per flip in the window
-  daily: { date: string; earn: number; cumulative: number; direction: string }[];
+  grossAll: number;      // funding earned over the whole overlap with flipping, before fees
+  fixedGross: number;    // same period, never flipping (stays on the starting side)
+  flipsAll: number; streakNow: number; lastFlipTs: number | null;
+  daily: { date: string; earn: number; fixed: number; cumulative: number; direction: string }[];
   flipLog: { ts: number; date: string; direction: string; streak: number }[];
 };
 
@@ -135,7 +138,7 @@ export function dynamicFlip(b: Ev[], d: Ev[], roundTripFee: number, dirs: [strin
   for (const e of d) if (e.ts >= t0 && e.ts <= t1) base.set(e.ts, (base.get(e.ts) ?? 0) - e.rate);
 
   let dir = startSign, streak = 0, bucket: number | null = null, bucketSum = 0, bucketLast = 0;
-  const earns: { ts: number; earn: number; dir: number }[] = [];
+  const earns: { ts: number; earn: number; fixed: number; dir: number }[] = [];
   const flips: { ts: number; dir: number; streak: number }[] = [];
   for (const ts of [...base.keys()].sort((x, y) => x - y)) {
     const bk = Math.floor(ts / blockMs);
@@ -146,7 +149,7 @@ export function dynamicFlip(b: Ev[], d: Ev[], roundTripFee: number, dirs: [strin
     }
     bucket = bk;
     const earn = dir * base.get(ts)!;                          // earned by the position held at this payment
-    earns.push({ ts, earn, dir });
+    earns.push({ ts, earn, fixed: startSign * base.get(ts)!, dir });
     bucketSum += earn; bucketLast = ts;
   }
 
@@ -156,18 +159,20 @@ export function dynamicFlip(b: Ev[], d: Ev[], roundTripFee: number, dirs: [strin
   const net = (n: number) => gross(n) - roundTripFee * (1 + nFlips(n));
   const names = (x: number) => (x === 1 ? dirs[0] : dirs[1]);
 
-  const perDay = new Map<number, { earn: number; dir: number }>();
-  for (const e of earns) { const k = dayKey(e.ts), c = perDay.get(k) ?? { earn: 0, dir: e.dir }; perDay.set(k, { earn: c.earn + e.earn, dir: e.dir }); }
+  const perDay = new Map<number, { earn: number; fixed: number; dir: number }>();
+  for (const e of earns) { const k = dayKey(e.ts), c = perDay.get(k) ?? { earn: 0, fixed: 0, dir: e.dir }; perDay.set(k, { earn: c.earn + e.earn, fixed: c.fixed + e.fixed, dir: e.dir }); }
   let cum = 0;
   const daily = [...perDay.keys()].sort((x, y) => x - y).map((k) => {
     const v = perDay.get(k)!; cum += v.earn;
-    return { date: new Date(k * DAY).toISOString().slice(0, 10), earn: v.earn, cumulative: cum, direction: names(v.dir) };
+    return { date: new Date(k * DAY).toISOString().slice(0, 10), earn: v.earn, fixed: v.fixed, cumulative: cum, direction: names(v.dir) };
   });
   return {
     start: names(startSign), direction: names(dir), days: Math.round((t1 - t0) / DAY),
     flips: nFlips(365), flips30: nFlips(30), flips90: nFlips(90),
     ret7: gross(7), ret30: gross(30), ret90: gross(90), ret365: gross(365),
     net30: net(30), net90: net(90), net365: net(365),
+    grossAll: sum(earns.map((e) => e.earn)), fixedGross: sum(earns.map((e) => e.fixed)),
+    flipsAll: flips.length, streakNow: bucketSum < 0 ? streak + bucketSum : 0, lastFlipTs: flips.length ? flips[flips.length - 1].ts : null,
     daily,
     flipLog: flips.map((f) => ({ ts: f.ts, date: new Date(f.ts).toISOString().slice(0, 16).replace("T", " "), direction: names(f.dir), streak: f.streak })),
   };

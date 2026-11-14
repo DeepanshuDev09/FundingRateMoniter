@@ -1,5 +1,6 @@
 import { q } from "./db";
 import { binanceWorstMove } from "./exchanges";
+import { analyzeDynamic, loadEvents } from "./recommendDynamic";
 
 // ---- Settings ----
 export const LOOKBACK = 90;   // days of history used to judge a pair
@@ -13,8 +14,8 @@ const DAYMS = 86400000;
 const DIR_A = "SHORT_BINANCE_LONG_DELTA", DIR_B = "LONG_BINANCE_SHORT_DELTA";
 export type RecommendationMarket = "delta" | "bybit";
 const cfg = (market: RecommendationMarket) => market === "bybit"
-  ? { peer: "bybit", features: "bybit_pair_features", obs: "bybit_wf_obs", summary: "bybit_wf_summary", dirA: "SHORT_BINANCE_LONG_BYBIT", dirB: "LONG_BINANCE_SHORT_BYBIT", fee: 2 * (Number(process.env.TAKER_FEE_BINANCE ?? 0.0005) + Number(process.env.TAKER_FEE_BYBIT ?? 0.00055)) }
-  : { peer: "delta", features: "pair_features", obs: "wf_obs", summary: "wf_summary", dirA: DIR_A, dirB: DIR_B, fee: roundTripFee() };
+  ? { peer: "bybit", dyn: "bybit_pair_dyn_features", features: "bybit_pair_features", obs: "bybit_wf_obs", summary: "bybit_wf_summary", dirA: "SHORT_BINANCE_LONG_BYBIT", dirB: "LONG_BINANCE_SHORT_BYBIT", fee: 2 * (Number(process.env.TAKER_FEE_BINANCE ?? 0.0005) + Number(process.env.TAKER_FEE_BYBIT ?? 0.00055)) }
+  : { peer: "delta", dyn: "pair_dyn_features", features: "pair_features", obs: "wf_obs", summary: "wf_summary", dirA: DIR_A, dirB: DIR_B, fee: roundTripFee() };
 
 // ---- Small helpers ----
 const sum = (a: number[]) => a.reduce((x, y) => x + y, 0);
@@ -166,13 +167,14 @@ export async function recInit(market: RecommendationMarket = "delta") {
 
 export async function recChunk(bases: string[], market: RecommendationMarket = "delta") {
   const c = cfg(market);
-  const [daily, meta] = await Promise.all([
+  const [daily, meta, events] = await Promise.all([
     loadDaily(bases, c.peer),
     q(`SELECT p.base,p.binance_symbol,p.b_mult,p.d_mult,p.y_mult,l.b_vol,l.d_vol,l.b_mark,l.d_mark,l.y_vol,l.y_mark
          FROM pair_map p LEFT JOIN live_snapshot l ON l.base=p.base WHERE p.base = ANY($1::text[])`, [bases]),
+    loadEvents(bases, c.peer).catch(() => new Map()),   // raw payments for the dynamic-side analysis
   ]);
   const moves = await Promise.allSettled(meta.map((m: any) => binanceWorstMove(m.binance_symbol)));
-  const feats: any[] = [], obs: any[] = [];
+  const feats: any[] = [], obs: any[] = [], dynFeats: any[] = [];
   meta.forEach((m: any, i: number) => {
     const arr = daily.get(m.base);
     if (!arr) return;
@@ -180,6 +182,8 @@ export async function recChunk(bases: string[], market: RecommendationMarket = "
     const basis = market === "bybit" ? (m.b_mark && m.y_mark ? (m.y_mark / (m.y_mult ?? 1)) / (m.b_mark / m.b_mult) - 1 : null) : (m.b_mark && m.d_mark ? m.d_mark / m.d_mult / (m.b_mark / m.b_mult) - 1 : null);
     const mv = moves[i].status === "fulfilled" ? (moves[i] as any).value : null;
     feats.push({ base: m.base, data: analyzePair(m.base, arr, vol, basis, mv, market) });
+    const ev = events.get(m.base);
+    if (ev) { try { dynFeats.push({ base: m.base, data: analyzeDynamic(m.base, ev.b, ev.d, { market, fee: c.fee, volume: vol, basis, maxMove: mv }) }); } catch { /* the fixed-side analysis must still finish */ } }
     for (const o of walkForward(arr, market)) obs.push({ base: m.base, ...o });
   });
   if (feats.length)
@@ -191,7 +195,10 @@ export async function recChunk(bases: string[], market: RecommendationMarket = "
              AS x(base text,fold int,m30 float8,m90 float8,md90 float8,cons float8,fwd float8)
              ON CONFLICT (base,fold) DO UPDATE SET m30=EXCLUDED.m30,m90=EXCLUDED.m90,md90=EXCLUDED.md90,cons=EXCLUDED.cons,fwd=EXCLUDED.fwd`,
             [JSON.stringify(obs)]);
-  return { analyzed: feats.length, observations: obs.length };
+  if (dynFeats.length)
+    await q(`INSERT INTO ${c.dyn}(base,data,updated_at) SELECT base,data,now() FROM jsonb_to_recordset($1::jsonb) AS x(base text,data jsonb)
+             ON CONFLICT (base) DO UPDATE SET data=EXCLUDED.data, updated_at=now()`, [JSON.stringify(dynFeats)]);
+  return { analyzed: feats.length, observations: obs.length, dynamic: dynFeats.length };
 }
 
 /** Does each ranking rule actually predict what pairs earned over the following 120 days? */
