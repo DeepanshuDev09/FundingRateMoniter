@@ -206,18 +206,18 @@ export async function recomputeStats(base: string) {
   const s = analyze(mk("binance"), mk("delta"), feeRoundTrip());
   // Don't return early when there is no Delta data: Bybit-only pairs still need their Bybit stats below.
   if (s) await q(
-    `INSERT INTO pair_stats(base,direction,days,ret7,ret30,net30,avg_daily,apr,trend3_apr,consistency,spread_std,sign_flips,breakeven_days,ret90,net90,days90,ret365,net365,days365,updated_at)
-     VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,now())
+    `INSERT INTO pair_stats(base,direction,days,ret7,ret30,net30,avg_daily,apr,trend3_apr,consistency,spread_std,sign_flips,breakeven_days,ret90,net90,days90,ret365,net365,days365,ret1,updated_at)
+     VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,now())
      ON CONFLICT (base) DO UPDATE SET direction=$2,days=$3,ret7=$4,ret30=$5,net30=$6,avg_daily=$7,apr=$8,
-       trend3_apr=$9,consistency=$10,spread_std=$11,sign_flips=$12,breakeven_days=$13,ret90=$14,net90=$15,days90=$16,ret365=$17,net365=$18,days365=$19,updated_at=now()`,
-    [base, s.direction, s.days, s.ret7, s.ret30, s.net30, s.avg_daily, s.apr, s.trend3_apr, s.consistency, s.spread_std, s.sign_flips, s.breakeven_days, s.ret90, s.net90, s.days90, s.ret365, s.net365, s.days365],
+       trend3_apr=$9,consistency=$10,spread_std=$11,sign_flips=$12,breakeven_days=$13,ret90=$14,net90=$15,days90=$16,ret365=$17,net365=$18,days365=$19,ret1=$20,updated_at=now()`,
+    [base, s.direction, s.days, s.ret7, s.ret30, s.net30, s.avg_daily, s.apr, s.trend3_apr, s.consistency, s.spread_std, s.sign_flips, s.breakeven_days, s.ret90, s.net90, s.days90, s.ret365, s.net365, s.days365, s.ret1],
   );
   const y = analyze(mk("binance"), mk("bybit"), 2 * (Number(process.env.TAKER_FEE_BINANCE ?? 0.0005) + Number(process.env.TAKER_FEE_BYBIT ?? 0.00055)), [BYBIT_DIR_A, BYBIT_DIR_B]);
   if (y) await q(
-    `INSERT INTO bybit_pair_stats(base,direction,days,ret7,ret30,net30,avg_daily,apr,trend3_apr,consistency,spread_std,sign_flips,breakeven_days,ret90,net90,days90,ret365,net365,days365,updated_at)
-     VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,now())
-     ON CONFLICT (base) DO UPDATE SET direction=$2,days=$3,ret7=$4,ret30=$5,net30=$6,avg_daily=$7,apr=$8,trend3_apr=$9,consistency=$10,spread_std=$11,sign_flips=$12,breakeven_days=$13,ret90=$14,net90=$15,days90=$16,ret365=$17,net365=$18,days365=$19,updated_at=now()`,
-    [base, y.direction, y.days, y.ret7, y.ret30, y.net30, y.avg_daily, y.apr, y.trend3_apr, y.consistency, y.spread_std, y.sign_flips, y.breakeven_days, y.ret90, y.net90, y.days90, y.ret365, y.net365, y.days365],
+    `INSERT INTO bybit_pair_stats(base,direction,days,ret7,ret30,net30,avg_daily,apr,trend3_apr,consistency,spread_std,sign_flips,breakeven_days,ret90,net90,days90,ret365,net365,days365,ret1,updated_at)
+     VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,now())
+     ON CONFLICT (base) DO UPDATE SET direction=$2,days=$3,ret7=$4,ret30=$5,net30=$6,avg_daily=$7,apr=$8,trend3_apr=$9,consistency=$10,spread_std=$11,sign_flips=$12,breakeven_days=$13,ret90=$14,net90=$15,days90=$16,ret365=$17,net365=$18,days365=$19,ret1=$20,updated_at=now()`,
+    [base, y.direction, y.days, y.ret7, y.ret30, y.net30, y.avg_daily, y.apr, y.trend3_apr, y.consistency, y.spread_std, y.sign_flips, y.breakeven_days, y.ret90, y.net90, y.days90, y.ret365, y.net365, y.days365, y.ret1],
   );
   await saveDyn("pair_stats", base, dynamicFlip(mk("binance"), mk("delta"), feeRoundTrip()));
   await saveDyn("bybit_pair_stats", base, dynamicFlip(mk("binance"), mk("bybit"), roundTripFeeFor("bybit"), [BYBIT_DIR_A, BYBIT_DIR_B]));

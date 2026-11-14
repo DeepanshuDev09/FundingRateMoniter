@@ -2,7 +2,7 @@ import { getPairs } from "@/lib/queries";
 export const dynamic = "force-dynamic";
 export async function GET() {
   const rows = await getPairs();
-  const cols = ["base","direction","live_apr","ret7","ret30","net30","ret90","net90","ret365","net365","dyn_direction","dyn_flips","dyn_net30","dyn_net90","dyn_net365","apr","trend3_apr","consistency","spread_std","sign_flips","basis","volume","d_oi","breakeven_days","last_synced_at"];
+  const cols = ["base","direction","live_apr","ret1","ret7","ret30","net30","ret90","net90","ret365","net365","dyn_direction","dyn_flips","dyn_net30","dyn_net90","dyn_net365","apr","trend3_apr","consistency","spread_std","sign_flips","basis","volume","d_oi","breakeven_days","last_synced_at"];
   const csv = [cols.join(","), ...rows.map((r: any) => cols.map((c) => r[c] ?? "").join(","))].join("\n");
   return new Response(csv, { headers: { "Content-Type": "text/csv", "Content-Disposition": "attachment; filename=funding-spreads.csv" } });
 }

@@ -61,6 +61,7 @@ export function analyze(b: Ev[], d: Ev[], roundTripFee: number, directions = [DI
     days: n,
     days90: last90.length,
     days365: last365.length,
+    ret1: sum(s.slice(-1)),
     ret30: sum(s),
     ret7: sum(s.slice(-7)),
     ret90: sum(last90),

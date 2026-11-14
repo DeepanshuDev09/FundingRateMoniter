@@ -9,6 +9,7 @@ const CACHE_KEY = "pairs-cache-v1";
 
 const COLS: { key: string; label: string; num?: boolean; get: (r: Row) => any; render: (r: Row) => React.ReactNode }[] = [
   { key: "live_apr", label: "Now (APR)", num: true, get: (r) => r.live_apr, render: (r) => <span className="gain">{pct(r.live_apr, 0)}</span> },
+  { key: "ret1", label: "1d gross", num: true, get: (r) => r.ret1, render: (r) => <span className={cls(r.ret1)}>{signedPct(r.ret1)}</span> },
   { key: "ret7", label: "7d", num: true, get: (r) => r.ret7, render: (r) => <span className={cls(r.ret7)}>{signedPct(r.ret7)}</span> },
   { key: "ret30", label: "30d gross", num: true, get: (r) => r.ret30, render: (r) => <span className={cls(r.ret30)}>{signedPct(r.ret30)}</span> },
   { key: "net30", label: "30d net", num: true, get: (r) => r.net30, render: (r) => <span className={cls(r.net30)}>{signedPct(r.net30)}</span> },

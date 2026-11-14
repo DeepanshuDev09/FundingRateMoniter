@@ -26,6 +26,8 @@ export function ensureSchema(): Promise<void> {
                  AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='pair_map' AND column_name='y_interval')
                  AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='pair_stats' AND column_name='ret365')
                  AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='bybit_pair_stats' AND column_name='ret365')
+                 AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='pair_stats' AND column_name='ret1')
+                 AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='bybit_pair_stats' AND column_name='ret1')
                  AND to_regclass('pair_dyn_features') IS NOT NULL AND to_regclass('bybit_pair_dyn_features') IS NOT NULL
                  AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='pair_stats' AND column_name='dyn_net365')
                  AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='bybit_pair_stats' AND column_name='dyn_net365')) AS ok`);
@@ -62,6 +64,7 @@ export const SCHEMA = [
      consistency double precision, spread_std double precision, sign_flips int,
      breakeven_days double precision, updated_at timestamptz DEFAULT now())`,
   `ALTER TABLE pair_stats ADD COLUMN IF NOT EXISTS ret90 double precision`,
+  `ALTER TABLE pair_stats ADD COLUMN IF NOT EXISTS ret1 double precision`,
   `ALTER TABLE pair_stats ADD COLUMN IF NOT EXISTS net90 double precision`,
   `ALTER TABLE pair_stats ADD COLUMN IF NOT EXISTS days90 int`,
   `ALTER TABLE pair_stats ADD COLUMN IF NOT EXISTS ret365 double precision`,
@@ -100,6 +103,7 @@ export const SCHEMA = [
   `ALTER TABLE live_snapshot ADD COLUMN IF NOT EXISTS y_vol double precision`,
   `ALTER TABLE live_snapshot ADD COLUMN IF NOT EXISTS y_oi double precision`,
   `CREATE TABLE IF NOT EXISTS bybit_pair_stats (LIKE pair_stats INCLUDING ALL)`,
+  `ALTER TABLE bybit_pair_stats ADD COLUMN IF NOT EXISTS ret1 double precision`,
   `ALTER TABLE bybit_pair_stats ADD COLUMN IF NOT EXISTS ret365 double precision`,
   `ALTER TABLE bybit_pair_stats ADD COLUMN IF NOT EXISTS net365 double precision`,
   `ALTER TABLE bybit_pair_stats ADD COLUMN IF NOT EXISTS days365 int`,
