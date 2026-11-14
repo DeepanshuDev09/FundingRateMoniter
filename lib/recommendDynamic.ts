@@ -22,7 +22,6 @@ export const DYN = {
   MIN_HEADROOM: 3,     // break-even cost per flip must be at least 3x the real cost of a flip
   MIN_ROBUST: 0.75,    // share of rule settings (threshold x block length) that must still be profitable
   MIN_WIN: 0.7,        // share of test windows that must be profitable after costs
-  MIN_VOLUME: 1e6,     // lowest 24h volume (USD) on either exchange
   MAX_LEV: Number(process.env.DYN_MAX_LEVERAGE ?? 3), // flips move the short between exchanges, so keep leverage lower than for a fixed side
 };
 const GRID_THRESHOLDS = [0.0015, 0.0025, 0.005, 0.01];
@@ -153,7 +152,8 @@ export function analyzeDynamic(base: string, b: Ev[], d: Ev[],
   if (pWin < DYN.MIN_WIN) reasons.push(`Profitable after costs in only ${Math.round(pWin * 100)}% of test windows`);
   if (p50 <= 0) reasons.push("Typical return after costs is not positive");
   if (p50 <= fixedP50) reasons.push("Does not beat staying on a fixed side");
-  if (o.volume != null && o.volume < DYN.MIN_VOLUME) reasons.push("Too thin to flip at a sensible cost");
+  // No volume filter: thin pairs are never excluded. They only get a warning, and slippage is already in the cost estimate.
+  if (o.volume != null && o.volume < 1e6) flags.push("Very thin liquidity");
   if (o.basis != null && Math.abs(o.basis) > 0.005) flags.push("Wide price gap between exchanges");
   if (o.volume == null) flags.push("No volume data");
   if (o.maxMove == null) flags.push("No price history for margin check");
