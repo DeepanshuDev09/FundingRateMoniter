@@ -6,37 +6,45 @@ import { cls, dirLabel, freshness, pct, signedPct, usd } from "@/lib/format";
 
 export default function PairPage({ params, searchParams }: { params: Promise<{ base: string }>; searchParams: Promise<{ market?: string }> }) {
   const { base } = use(params);
-  const by = use(searchParams).market === "bybit";
+  const market = use(searchParams).market;
+  const by = market === "bybit";
+  const bybitDelta = market === "bybit-delta";
   const [data, setData] = useState<any>(null);
   const [error, setError] = useState("");
 
   useEffect(() => {
-    fetch(`/api/pair/${base}${by ? "?market=bybit" : ""}`).then(async (r) => {
+    fetch(`/api/pair/${base}${market ? `?market=${market}` : ""}`).then(async (r) => {
       const j = await r.json();
       if (!r.ok) throw new Error(j.error || r.statusText);
       setData(j);
     }).catch((e) => setError(e.message));
-  }, [base, by]);
+  }, [base, market]);
 
   if (error) return <div className="wrap"><Link className="back" href="/">Back to all pairs</Link><div className="err"><b>Couldn&apos;t load {base}.</b> {error}</div></div>;
   if (!data) return <div className="wrap"><Link className="back" href="/">Back to all pairs</Link><p className="muted">Loading...</p></div>;
 
   const p = data.pair, series: any[] = data.series;
-  const f = freshness(p.last_synced_at);
-  const bFund = p.b_rate != null ? p.b_rate * 100 : null;
-  const peer = by ? "Bybit" : "Delta", peerKey = by ? "bybit" : "delta";
-  const pk = (k: string) => (by ? p[`y_${k}`] : p[k]); // stats come from the Bybit columns in Bybit mode
-  const dFund = (by ? p.y_rate : p.d_rate) != null ? (by ? p.y_rate : p.d_rate) * 100 : null;
+  const f = freshness(bybitDelta ? p.bybit_delta_last_synced_at : p.last_synced_at);
+  const left = bybitDelta ? "Bybit" : "Binance", peer = by ? "Bybit" : "Delta";
+  const leftKey = bybitDelta ? "bybit" : "binance", peerKey = by ? "bybit" : "delta";
+  const pk = (k: string) => (by ? p[`y_${k}`] : bybitDelta ? p[`yd_${k}`] : p[k]);
+  const leftRate = bybitDelta ? p.y_rate : p.b_rate;
+  const peerRate = by ? p.y_rate : p.d_rate;
+  const leftInterval = bybitDelta ? (p.y_interval ?? p.mapped_y_interval) : p.b_interval;
   const peerInterval = by ? (p.y_interval ?? p.mapped_y_interval) : p.d_interval;
+  const leftMark = bybitDelta ? (p.y_mark ? p.y_mark / (p.y_mult ?? 1) : null) : (p.b_mark ? p.b_mark / p.b_mult : null);
   const peerMark = by ? (p.y_mark ? p.y_mark / (p.y_mult ?? 1) : null) : (p.d_mark ? p.d_mark / p.d_mult : null);
-  const liveApr = by ? p.y_live_apr : p.live_apr, liveDir = by ? p.y_live_direction : p.live_direction;
-  const peerVol = by ? p.y_vol : p.d_vol, basis = by ? p.y_basis : p.basis;
+  const liveApr = by ? p.y_live_apr : bybitDelta ? p.yd_live_apr : p.live_apr;
+  const liveDir = by ? p.y_live_direction : bybitDelta ? p.yd_live_direction : p.live_direction;
+  const leftVol = bybitDelta ? p.y_vol : p.b_vol;
+  const peerVol = by ? p.y_vol : p.d_vol;
+  const basis = by ? p.y_basis : bybitDelta ? p.yd_basis : p.basis;
 
   return (
     <div className="wrap">
       <Link className="back" href="/">Back to all pairs</Link>
       <h1>{p.base}</h1>
-      <p className="sub">{p.binance_symbol} on Binance, {by ? p.bybit_symbol : p.delta_symbol} on {by ? "Bybit" : "Delta India"}. Best direction over 30 days: <b>{dirLabel(pk("direction"))}</b>.</p>
+      <p className="sub">{bybitDelta ? `${p.bybit_symbol} on Bybit, ${p.delta_symbol} on Delta India` : `${p.binance_symbol} on Binance, ${by ? p.bybit_symbol : p.delta_symbol} on ${by ? "Bybit" : "Delta India"}`}. Best direction over 30 days: <b>{dirLabel(pk("direction"))}</b>.</p>
 
       <div className="facts">
         <div className="fact"><b className={cls(pk("net30"))}>{signedPct(pk("net30"))}</b><span>30d net of fees</span></div>
@@ -65,7 +73,7 @@ export default function PairPage({ params, searchParams }: { params: Promise<{ b
               <YAxis stroke="var(--muted)" fontSize={12} tickFormatter={(v) => `${v.toFixed(2)}%`} width={56} />
               <Tooltip formatter={(v: any) => `${Number(v).toFixed(4)}%`} contentStyle={{ background: "var(--panel)", border: "1px solid var(--line)", color: "var(--ink)" }} />
               <Legend />
-              <Bar dataKey="binance" name="Binance funding/day" fill="#d99a2b" />
+              <Bar dataKey={leftKey} name={`${left} funding/day`} fill="#d99a2b" />
               <Bar dataKey={peerKey} name={`${peer} funding/day`} fill="#4b8fd6" />
               <Line type="monotone" dataKey="cumulative" name="Cumulative, fixed best side" stroke="var(--gain)" strokeWidth={2.5} dot={false} />
               <Line type="monotone" dataKey="dyn_cumulative" name="Cumulative, flipping sides (gross)" stroke="#a66bd6" strokeWidth={2.5} dot={false} />
@@ -77,27 +85,27 @@ export default function PairPage({ params, searchParams }: { params: Promise<{ b
 
       {data.dyn && <FlipLog dyn={data.dyn} />}
 
-      <DailyFundingTable key={`${base}-${peer}`} funding={data.funding ?? []} peer={peer} />
+      <DailyFundingTable key={`${base}-${peer}`} funding={data.funding ?? []} left={left} peer={peer} />
 
       <div className="grid">
         <div className="box">
           <h2>Right now</h2>
-          <div className="row"><span>Binance funding / interval</span><span className="num">{bFund == null ? "-" : `${bFund.toFixed(4)}% / ${p.b_interval}h`}</span></div>
-          <div className="row"><span>{peer} funding / interval</span><span className="num">{dFund == null ? "-" : `${dFund.toFixed(4)}% / ${peerInterval}h`}</span></div>
-          {!by && <div className="row"><span>CoinDCX funding / interval</span><span className="num">{p.c_rate == null ? "not listed" : `${(p.c_rate * 100).toFixed(4)}% / ${p.c_interval ?? 8}h`}</span></div>}
-          {!by && <div className="row"><span>CoinDCX vs Delta, live (APR)</span><span className="num gain">{p.dcx_apr == null ? "-" : `${pct(p.dcx_apr, 0)}: ${dirLabel(p.dcx_direction)}`}</span></div>}
-          <div className="row"><span>Current spread, Binance vs {peer} (APR)</span><span className="num gain">{pct(liveApr, 0)}</span></div>
+          <div className="row"><span>{left} funding / interval</span><span className="num">{leftRate == null ? "-" : `${(leftRate * 100).toFixed(4)}% / ${leftInterval}h`}</span></div>
+          <div className="row"><span>{peer} funding / interval</span><span className="num">{peerRate == null ? "-" : `${(peerRate * 100).toFixed(4)}% / ${peerInterval}h`}</span></div>
+          {!by && !bybitDelta && <div className="row"><span>CoinDCX funding / interval</span><span className="num">{p.c_rate == null ? "not listed" : `${(p.c_rate * 100).toFixed(4)}% / ${p.c_interval ?? 8}h`}</span></div>}
+          {!by && !bybitDelta && <div className="row"><span>CoinDCX vs Delta, live (APR)</span><span className="num gain">{p.dcx_apr == null ? "-" : `${pct(p.dcx_apr, 0)}: ${dirLabel(p.dcx_direction)}`}</span></div>}
+          <div className="row"><span>Current spread, {left} vs {peer} (APR)</span><span className="num gain">{pct(liveApr, 0)}</span></div>
           <div className="row"><span>Current best direction</span><span>{dirLabel(liveDir)}</span></div>
-          <div className="row"><span>Binance mark price</span><span className="num">{p.b_mark ? (p.b_mark / p.b_mult).toPrecision(6) : "-"}</span></div>
+          <div className="row"><span>{left} mark price</span><span className="num">{leftMark ? leftMark.toPrecision(6) : "-"}</span></div>
           <div className="row"><span>{peer} mark price</span><span className="num">{peerMark ? peerMark.toPrecision(6) : "-"}</span></div>
-          <div className="row"><span>Basis ({peer} vs Binance)</span><span className="num">{signedPct(basis)}</span></div>
-          <div className="row"><span>24h volume (Binance / {peer})</span><span className="num">{usd(p.b_vol)} / {usd(peerVol)}</span></div>
+          <div className="row"><span>Basis ({peer} vs {left})</span><span className="num">{signedPct(basis)}</span></div>
+          <div className="row"><span>24h volume ({left} / {peer})</span><span className="num">{usd(leftVol)} / {usd(peerVol)}</span></div>
           <div className="row"><span>{peer} open interest</span><span className="num">{usd(by ? p.y_oi : p.d_oi)}</span></div>
           <div className="row"><span>Stability: daily std / sign flips</span><span className="num">{pct(pk("spread_std"), 3)} / {pk("sign_flips") ?? "-"}</span></div>
           <div className="row"><span>History synced</span><span><span className={`dot ${f.c}`} />{f.t}</span></div>
         </div>
-        <Backtest series={series} defaultFee={by ? 0.055 : 0.05} />
-        <Liquidation entry={p.b_mark ? p.b_mark / p.b_mult : 0} />
+        <Backtest series={series} defaultFee={by ? 0.055 : bybitDelta ? 0.0525 : 0.05} />
+        <Liquidation entry={leftMark ?? 0} />
       </div>
       <p className="note" style={{ marginTop: 14 }}>
         The projection assumes the same funding repeats. It won&apos;t, so treat it as a rough guide.
@@ -106,7 +114,7 @@ export default function PairPage({ params, searchParams }: { params: Promise<{ b
   );
 }
 
-function DailyFundingTable({ funding, peer }: { funding: { date: string; binance: number | null; peer: number | null; net: number | null }[]; peer: string }) {
+function DailyFundingTable({ funding, left, peer }: { funding: { date: string; binance: number | null; peer: number | null; net: number | null }[]; left: string; peer: string }) {
   const currentMonth = new Date().toISOString().slice(0, 7);
   const [month, setMonth] = useState(funding[funding.length - 1]?.date.slice(0, 7) ?? currentMonth);
   const daysInMonth = new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0)).getUTCDate();
@@ -141,7 +149,7 @@ function DailyFundingTable({ funding, peer }: { funding: { date: string; binance
       </div>
       <div className="tablebox">
         <table className="daily-funding-table">
-          <thead><tr><th>Date (UTC)</th><th className="num">Binance</th><th className="num">{peer}</th><th className="num">Net return</th></tr></thead>
+          <thead><tr><th>Date (UTC)</th><th className="num">{left}</th><th className="num">{peer}</th><th className="num">Net return</th></tr></thead>
           <tbody>
             {rows.map((row) => (
               <tr key={row.date}>

@@ -19,7 +19,7 @@ export async function POST(req: Request) {
       return Response.json({ ok: true, pairs: rp.count, since, warnings: [...rp.warnings, ...rl.warnings] });
     }
     if (body.step === "batch") {
-      if (body.market != null && body.market !== "delta" && body.market !== "bybit")
+      if (body.market != null && body.market !== "delta" && body.market !== "bybit" && body.market !== "bybit-delta")
         return Response.json({ error: "Unknown sync market" }, { status: 400 });
       return Response.json({ ok: true, ...(await syncHistory(10, body.since, body.market)) });
     }

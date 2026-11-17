@@ -26,8 +26,8 @@ export default function Admin() {
     catch (e: any) { add(e.message); }
   };
 
-  const syncMarket = async (market: "delta" | "bybit") => {
-    const marketName = market === "delta" ? "Binance - Delta" : "Binance - Bybit";
+  const syncMarket = async (market: "delta" | "bybit" | "bybit-delta") => {
+    const marketName = market === "delta" ? "Binance - Delta" : market === "bybit" ? "Binance - Bybit" : "Bybit - Delta";
     stop.current = false; setRunning(market); setLog([]);
     try {
       add(`Updating pair list and live funding rates for ${marketName}...`);
@@ -100,6 +100,7 @@ export default function Admin() {
             </label>
             <button onClick={() => syncMarket("delta")} disabled={!!running}>Sync Binance - Delta</button>
             <button onClick={() => syncMarket("bybit")} disabled={!!running}>Sync Binance - Bybit</button>
+            <button onClick={() => syncMarket("bybit-delta")} disabled={!!running}>Sync Bybit - Delta</button>
           </div>
           <h2 style={{ marginTop: 18 }}>2. Run long-term analysis</h2>
           <p className="sub">Scores every pair for a 4-month hold and tests the ranking rules against past data. Run it after a sync. It takes about a minute.</p>

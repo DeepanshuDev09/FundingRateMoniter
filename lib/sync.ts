@@ -1,5 +1,5 @@
 import { q } from "./db";
-import { analyze, BYBIT_DIR_A, BYBIT_DIR_B, dynamicFlip, roundTripFeeFor, type DynResult } from "./calc";
+import { analyze, BYBIT_DELTA_DIR_A, BYBIT_DELTA_DIR_B, BYBIT_DIR_A, BYBIT_DIR_B, dynamicFlip, roundTripFeeFor, type DynResult } from "./calc";
 import { binanceHistory, binanceLive, binanceSymbols, bybitHistory, bybitLive, bybitSymbols, coindcxFundingHours, coindcxPrices, deltaHistory, deltaProducts, deltaTickers, normBase } from "./exchanges";
 
 const DAY = 86400000;
@@ -111,7 +111,7 @@ export async function refreshLive() {
   return { count: rows.length, warnings };
 }
 
-type SyncMarket = "delta" | "bybit";
+type SyncMarket = "delta" | "bybit" | "bybit-delta";
 
 async function syncOne(p: any, market?: SyncMarket) {
   const last = await q(
@@ -119,17 +119,17 @@ async function syncOne(p: any, market?: SyncMarket) {
        FROM funding_history WHERE base=$1 GROUP BY exchange`, [p.base]);
   const lm = Object.fromEntries(last.map((r: any) => [r.exchange, { min: Number(r.min_ms), max: Number(r.max_ms) }]));
   const from = Date.now() - 365 * DAY;
-  const backfillColumn = market ? `${market}_backfill_days` : "backfill_days";
+  const backfillColumn = market === "bybit-delta" ? "bybit_delta_backfill_days" : market ? `${market}_backfill_days` : "backfill_days";
   const [st] = await q(`SELECT ${backfillColumn} AS backfill_days FROM sync_state WHERE base=$1`, [p.base]);
   const full = (st?.backfill_days ?? 0) >= 365;
   const startFor = (ex: string) => (full && lm[ex] ? lm[ex].max + 1 : from);
-  const [bi] = await q(`SELECT b_interval,y_interval FROM live_snapshot WHERE base=$1`, [p.base]);
+  const [bi] = await q(`SELECT b_interval,d_interval,y_interval FROM live_snapshot WHERE base=$1`, [p.base]);
 
   let bybitError = "";
   const [b, d, y] = await Promise.all([
-    binanceHistory(p.binance_symbol, startFor("binance"), bi?.b_interval ?? 8),
-    (!market || market === "delta") && p.delta_symbol ? deltaHistory(p.delta_symbol, startFor("delta")) : Promise.resolve([]),
-    (!market || market === "bybit") && p.bybit_symbol
+    (!market || market === "delta" || market === "bybit") ? binanceHistory(p.binance_symbol, startFor("binance"), bi?.b_interval ?? 8) : Promise.resolve([]),
+    (!market || market === "delta" || market === "bybit-delta") && p.delta_symbol ? deltaHistory(p.delta_symbol, startFor("delta")) : Promise.resolve([]),
+    (!market || market === "bybit" || market === "bybit-delta") && p.bybit_symbol
       ? bybitHistory(p.bybit_symbol, startFor("bybit"), bi?.y_interval ?? p.y_interval ?? 8)
           .catch((e) => { bybitError = String(e.message).slice(0, 140); return [] as Awaited<ReturnType<typeof bybitHistory>>; })
       : Promise.resolve([]),
@@ -148,7 +148,7 @@ async function syncOne(p: any, market?: SyncMarket) {
     );
   }
   await recomputeStats(p.base);
-  const timestampColumn = market ? `${market}_last_synced_at` : "last_synced_at";
+  const timestampColumn = market === "bybit-delta" ? "bybit_delta_last_synced_at" : market ? `${market}_last_synced_at` : "last_synced_at";
   const timestampUpdate = market ? `${timestampColumn}=now(), last_synced_at=now()` : "last_synced_at=now()";
   await q(
     `UPDATE sync_state SET ${timestampUpdate}, ${backfillColumn}=CASE WHEN $2 THEN ${backfillColumn} ELSE 365 END WHERE base=$1`,
@@ -159,10 +159,12 @@ async function syncOne(p: any, market?: SyncMarket) {
 
 /** Sync up to N pairs not yet synced since `since` (ISO). Returns results + how many remain. */
 export async function syncHistory(n: number, since: string, market?: SyncMarket) {
-  const timestampColumn = market ? `${market}_last_synced_at` : "last_synced_at";
-  const targetColumn = market === "delta" ? "delta_symbol" : market === "bybit" ? "bybit_symbol" : null;
-  const peerVolumeColumn = market === "bybit" ? "l.y_vol" : "l.d_vol";
-  const where = `p.active ${targetColumn ? `AND p.${targetColumn} IS NOT NULL` : ""} AND (s.${timestampColumn} IS NULL OR s.${timestampColumn} < $1::timestamptz)`;
+  const timestampColumn = market === "bybit-delta" ? "bybit_delta_last_synced_at" : market ? `${market}_last_synced_at` : "last_synced_at";
+  const targetWhere = market === "delta" ? "AND p.delta_symbol IS NOT NULL"
+    : market === "bybit" ? "AND p.bybit_symbol IS NOT NULL"
+      : market === "bybit-delta" ? "AND p.bybit_symbol IS NOT NULL AND p.delta_symbol IS NOT NULL" : "";
+  const peerVolumeColumn = market === "bybit" ? "l.y_vol" : market === "bybit-delta" ? "LEAST(l.y_vol,l.d_vol)" : "l.d_vol";
+  const where = `p.active ${targetWhere} AND (s.${timestampColumn} IS NULL OR s.${timestampColumn} < $1::timestamptz)`;
   const pick = await q(
     `SELECT p.base,p.binance_symbol,p.delta_symbol,p.bybit_symbol,p.y_interval FROM pair_map p
        LEFT JOIN sync_state s ON s.base=p.base LEFT JOIN live_snapshot l ON l.base=p.base
@@ -190,7 +192,7 @@ export async function syncHistory(n: number, since: string, market?: SyncMarket)
 }
 
 /** Saves the dynamic-flip returns next to the normal stats (UPDATE only, the INSERT above creates the row). */
-async function saveDyn(table: "pair_stats" | "bybit_pair_stats", base: string, r: DynResult | null) {
+async function saveDyn(table: "pair_stats" | "bybit_pair_stats" | "bybit_delta_pair_stats", base: string, r: DynResult | null) {
   if (!r) return;
   await q(`UPDATE ${table} SET dyn_direction=$2,dyn_flips=$3,dyn_flips30=$4,dyn_ret30=$5,dyn_net30=$6,dyn_ret90=$7,dyn_net90=$8,dyn_ret365=$9,dyn_net365=$10 WHERE base=$1`,
     [base, r.direction, r.flips, r.flips30, r.ret30, r.net30, r.ret90, r.net90, r.ret365, r.net365]);
@@ -219,6 +221,16 @@ export async function recomputeStats(base: string) {
      ON CONFLICT (base) DO UPDATE SET direction=$2,days=$3,ret7=$4,ret30=$5,net30=$6,avg_daily=$7,apr=$8,trend3_apr=$9,consistency=$10,spread_std=$11,sign_flips=$12,breakeven_days=$13,ret90=$14,net90=$15,days90=$16,ret365=$17,net365=$18,days365=$19,ret1=$20,updated_at=now()`,
     [base, y.direction, y.days, y.ret7, y.ret30, y.net30, y.avg_daily, y.apr, y.trend3_apr, y.consistency, y.spread_std, y.sign_flips, y.breakeven_days, y.ret90, y.net90, y.days90, y.ret365, y.net365, y.days365, y.ret1],
   );
+  const ydFee = 2 * (Number(process.env.TAKER_FEE_BYBIT ?? 0.00055) + Number(process.env.TAKER_FEE_DELTA ?? 0.0005));
+  const yd = analyze(mk("bybit"), mk("delta"), ydFee, [BYBIT_DELTA_DIR_A, BYBIT_DELTA_DIR_B]);
+  if (yd) await q(
+    `INSERT INTO bybit_delta_pair_stats(base,direction,days,ret7,ret30,net30,avg_daily,apr,trend3_apr,consistency,spread_std,sign_flips,breakeven_days,ret90,net90,days90,ret365,net365,days365,ret1,updated_at)
+     VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,now())
+     ON CONFLICT (base) DO UPDATE SET direction=$2,days=$3,ret7=$4,ret30=$5,net30=$6,avg_daily=$7,apr=$8,
+       trend3_apr=$9,consistency=$10,spread_std=$11,sign_flips=$12,breakeven_days=$13,ret90=$14,net90=$15,days90=$16,ret365=$17,net365=$18,days365=$19,ret1=$20,updated_at=now()`,
+    [base, yd.direction, yd.days, yd.ret7, yd.ret30, yd.net30, yd.avg_daily, yd.apr, yd.trend3_apr, yd.consistency, yd.spread_std, yd.sign_flips, yd.breakeven_days, yd.ret90, yd.net90, yd.days90, yd.ret365, yd.net365, yd.days365, yd.ret1],
+  );
   await saveDyn("pair_stats", base, dynamicFlip(mk("binance"), mk("delta"), feeRoundTrip()));
   await saveDyn("bybit_pair_stats", base, dynamicFlip(mk("binance"), mk("bybit"), roundTripFeeFor("bybit"), [BYBIT_DIR_A, BYBIT_DIR_B]));
+  await saveDyn("bybit_delta_pair_stats", base, dynamicFlip(mk("bybit"), mk("delta"), ydFee, [BYBIT_DELTA_DIR_A, BYBIT_DELTA_DIR_B]));
 }

@@ -12,7 +12,7 @@ function bucket(ev: Ev[]) {
 /** Per-UTC-day funding as percentages, retaining days present on only one exchange. */
 export function dailyFunding(b: Ev[], d: Ev[], direction: string) {
   const bm = bucket(b), dm = bucket(d);
-  const sign = direction === DIR_B || direction === BYBIT_DIR_B ? -1 : 1;
+  const sign = direction === DIR_B || direction === BYBIT_DIR_B || direction === BYBIT_DELTA_DIR_B ? -1 : 1;
   const days = [...new Set([...bm.keys(), ...dm.keys()])].sort((x, y) => x - y);
   return days.map((k) => ({
     date: new Date(k * DAY).toISOString().slice(0, 10),
@@ -34,6 +34,8 @@ export const DIR_A = "SHORT_BINANCE_LONG_DELTA";
 export const DIR_B = "LONG_BINANCE_SHORT_DELTA";
 export const BYBIT_DIR_A = "SHORT_BINANCE_LONG_BYBIT";
 export const BYBIT_DIR_B = "LONG_BINANCE_SHORT_BYBIT";
+export const BYBIT_DELTA_DIR_A = "SHORT_BYBIT_LONG_DELTA";
+export const BYBIT_DELTA_DIR_B = "LONG_BYBIT_SHORT_DELTA";
 
 /** Short the exchange paying less, long the other. Positive funding: longs pay shorts.
  *  Short Binance + Long Delta earns (binanceFunding - deltaFunding).
@@ -80,7 +82,7 @@ export function analyze(b: Ev[], d: Ev[], roundTripFee: number, directions = [DI
 }
 
 export function chartSeries(b: Ev[], d: Ev[], direction: string, labels = ["binance", "delta"]) {
-  const sign = direction === DIR_B || direction === BYBIT_DIR_B ? -1 : 1;
+  const sign = direction === DIR_B || direction === BYBIT_DIR_B || direction === BYBIT_DELTA_DIR_B ? -1 : 1;
   let cum = 0;
   return dailySpread(b, d).map((r) => {
     const earn = r.spread * sign;

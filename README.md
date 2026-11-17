@@ -1,13 +1,13 @@
 # Funding Spread Monitor (Vercel edition)
 
 Next.js 15 + Neon Postgres + Vercel Functions. Monitors funding rates of the same perpetual on
-**Binance USDT-M** and **Delta Exchange India**, plus a separate **Binance USDT-M ↔ Bybit linear USDT** monitor, and computes the hedged return
+**Binance USDT-M** and **Delta Exchange India**, plus separate **Binance USDT-M ↔ Bybit linear USDT** and **Bybit linear USDT ↔ Delta Exchange India** monitors, and computes the hedged return
 (short the exchange that pays less, long the other).
 
 ## How it works
 
 - Visitors see data saved in Postgres only. They never trigger any exchange calls.
-- You open `/admin`, enter `ADMIN_PASSWORD`, and choose **Sync Binance - Delta** or **Sync Binance - Bybit**. Each scan:
+- You open `/admin`, enter `ADMIN_PASSWORD`, and choose **Sync Binance - Delta**, **Sync Binance - Bybit**, or **Sync Bybit - Delta**. Each scan:
   1. creates tables if needed, rebuilds the common-pair list (also downloadable at `/api/common-pairs`) and saves live rates;
   2. downloads funding history for 10 pairs per batch (a full year on the first scan for that market, then only new records) and saves it;
   3. waits (default 60 s) and repeats until every pair is done.
@@ -19,7 +19,7 @@ Next.js 15 + Neon Postgres + Vercel Functions. Monitors funding rates of the sam
 1. Push this folder to GitHub and import it in Vercel.
 2. Add **Neon Postgres** from the Vercel Marketplace (sets `DATABASE_URL`).
 3. Add `ADMIN_PASSWORD` (and the other variables in `.env.example`), then deploy.
-4. Open `/admin`, sign in, and run the sync button for each market you want to update.
+4. Open `/admin`, sign in, and run the sync button for each market you want to update. Bybit - Delta has its own history sync and progress cursor.
 5. Verify Delta units (see below):
    `curl -H "x-admin-password: YOUR_PASSWORD" "https://YOUR-APP.vercel.app/api/debug/delta?symbol=BTCUSD"`
 

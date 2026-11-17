@@ -40,7 +40,7 @@ export default function Home() {
   const [onlyWatch, setOnlyWatch] = useState(false);
   const [watch, setWatch] = useState<string[]>([]);
   const [sort, setSort] = useState({ key: "net30", dir: -1 });
-  const [tab, setTab] = useState<"bd" | "cd" | "by">("bd");
+  const [tab, setTab] = useState<"bd" | "cd" | "by" | "yd">("bd");
 
   // Browser cache: show last data instantly, then refresh from the API every minute.
   useEffect(() => {
@@ -92,13 +92,14 @@ export default function Home() {
     <div className="wrap">
       <h1>Funding spread monitor</h1>
       <p className="sub">
-        Funding earned by holding opposite perpetual positions on Delta Exchange India and Binance Futures.
+        Funding earned by holding opposite perpetual positions across the selected exchange pair.
         Returns are on one leg&apos;s notional, before slippage and basis moves; net subtracts four taker fees. The \"Flip\" columns swap long and short automatically after a losing funding streak and charge one extra round-trip fee per flip.
       </p>
 
       <div className="tabs" role="tablist">
         <button role="tab" aria-selected={tab === "bd"} className={tab === "bd" ? "tab on" : "tab"} onClick={() => setTab("bd")}>Binance ↔ Delta</button>
         <button role="tab" aria-selected={tab === "by"} className={tab === "by" ? "tab on" : "tab"} onClick={() => setTab("by")}>Binance ↔ Bybit</button>
+        <button role="tab" aria-selected={tab === "yd"} className={tab === "yd" ? "tab on" : "tab"} onClick={() => setTab("yd")}>Bybit ↔ Delta</button>
         <button role="tab" aria-selected={tab === "cd"} className={tab === "cd" ? "tab on" : "tab"} onClick={() => setTab("cd")}>CoinDCX ↔ Delta</button>
       </div>
 
@@ -110,12 +111,12 @@ export default function Home() {
             <option value={1e7}>$10M</option><option value={1e8}>$100M</option>
           </select>
         </label>
-        {tab === "bd" && <label>Min positive days
+        {(tab === "bd" || tab === "yd") && <label>Min positive days
           <select value={minCons} onChange={(e) => setMinCons(Number(e.target.value))}>
             <option value={0}>Any</option><option value={0.5}>50%</option><option value={0.7}>70%</option><option value={0.9}>90%</option>
           </select>
         </label>}
-        {tab === "bd" && <label className="check"><input type="checkbox" checked={onlyNet} onChange={(e) => setOnlyNet(e.target.checked)} />Net positive only</label>}
+        {(tab === "bd" || tab === "yd") && <label className="check"><input type="checkbox" checked={onlyNet} onChange={(e) => setOnlyNet(e.target.checked)} />Net positive only</label>}
         <label className="check"><input type="checkbox" checked={onlyWatch} onChange={(e) => setOnlyWatch(e.target.checked)} />Watchlist only</label>
         {tab === "bd" && <a href="/api/export"><button type="button">Download CSV</button></a>}
       </div>
@@ -167,6 +168,8 @@ export default function Home() {
         </>
       ) : tab === "by" ? (
         <BybitTable rows={rows} q={q} minVol={minVol} onlyWatch={onlyWatch} watch={watch} toggle={toggle} loading={loading} />
+      ) : tab === "yd" ? (
+        <BybitDeltaTable rows={rows} q={q} minVol={minVol} minCons={minCons} onlyNet={onlyNet} onlyWatch={onlyWatch} watch={watch} toggle={toggle} loading={loading} />
       ) : (
         <CoinDcxTable rows={rows} q={q} minVol={minVol} onlyWatch={onlyWatch} watch={watch} toggle={toggle} loading={loading} />
       )}
@@ -180,7 +183,8 @@ export default function Home() {
       </div>
       <p className="note">
         Past funding does not predict future funding: compare the 3d APR column to the 30d APR before entering.
-        Basis is Delta mark price versus Binance mark price; a wide gap can erase funding gains when you close.
+        {tab === "bd" ? " Basis is Delta mark price versus Binance mark price." : tab === "by" ? " Basis is Bybit mark price versus Binance mark price." : tab === "yd" ? " Basis is Delta mark price versus Bybit mark price." : " Basis is Delta mark price versus CoinDCX mark price."}
+        {" "}A wide gap can erase funding gains when you close.
       </p>
     </div>
   );
@@ -223,6 +227,60 @@ function BybitTable({ rows, q, minVol, onlyWatch, watch, toggle, loading }: { ro
   }, [rows, q, minVol, onlyWatch, watch, sort]);
   const paged = usePaged(shown, `${q}|${minVol}|${onlyWatch}|${sort.key}|${sort.dir}`);
   return <><p className="note" style={{ margin: "0 0 10px" }}>Historical and live funding spreads between Binance USDT-M and Bybit linear USDT perpetuals. Basis is Bybit mark price versus Binance mark price.</p><div className="tablebox"><table><thead><tr><th aria-label="Watchlist" /><th onClick={() => setSort({ key: "base", dir: sort.key === "base" ? -sort.dir : 1 })}>Pair</th><th>Best direction</th>{BYBIT_COLS.map(c => <th key={c.key} className="num" onClick={() => setSort(s => ({ key: c.key, dir: s.key === c.key ? -s.dir : -1 }))}>{c.label}</th>)}</tr></thead><tbody>{paged.slice.map(r => <tr key={r.base}><td><button className={`star ${watch.includes(r.base) ? "on" : ""}`} onClick={() => toggle(r.base)} aria-label={`Watch ${r.base}`}>{watch.includes(r.base) ? "★" : "☆"}</button></td><td><Link className="pairname" href={`/pair/${r.base}?market=bybit`}>{r.base}</Link></td><td className="dir">{dirLabel(r.y_direction ?? r.y_live_direction)}</td>{BYBIT_COLS.map(c => <td key={c.key} className="num">{c.render(r)}</td>)}</tr>)}{!shown.length && <tr><td colSpan={BYBIT_COLS.length + 3} className="empty">{loading ? "Loading pairs..." : "No Bybit data yet. Run Sync Binance - Bybit in Admin."}</td></tr>}</tbody></table></div><Pager {...paged} /></>;
+}
+
+function BybitDeltaTable({ rows, q, minVol, minCons, onlyNet, onlyWatch, watch, toggle, loading }: {
+  rows: Row[]; q: string; minVol: number; minCons: number; onlyNet: boolean; onlyWatch: boolean; watch: string[]; toggle: (b: string) => void; loading: boolean;
+}) {
+  const [sort, setSort] = useState({ key: "net30", dir: -1 });
+  const mapped = useMemo(() => rows.map((r) => ({
+    ...r,
+    live_apr: r.yd_live_apr, direction: r.yd_direction, ret1: r.yd_ret1, ret7: r.yd_ret7,
+    ret30: r.yd_ret30, net30: r.yd_net30, net90: r.yd_net90, ret365: r.yd_ret365,
+    dyn_net30: r.yd_dyn_net30, dyn_net90: r.yd_dyn_net90, dyn_net365: r.yd_dyn_net365,
+    dyn_flips: r.yd_dyn_flips, apr: r.yd_apr, trend3_apr: r.yd_trend3_apr,
+    consistency: r.yd_consistency, sign_flips: r.yd_sign_flips, basis: r.yd_basis, volume: r.yd_volume,
+  })), [rows]);
+  const shown = useMemo(() => {
+    const col = COLS.find((c) => c.key === sort.key)!;
+    return mapped.filter((r) => r.bybit_symbol && r.delta_symbol && r.y_rate != null && r.d_rate != null)
+      .filter((r) => r.base.toLowerCase().includes(q.toLowerCase()))
+      .filter((r) => (r.volume ?? 0) >= minVol)
+      .filter((r) => (r.consistency ?? 0) >= minCons)
+      .filter((r) => !onlyNet || (r.net30 ?? -1) > 0)
+      .filter((r) => !onlyWatch || watch.includes(r.base))
+      .sort((a, b) => {
+        if (sort.key === "base") return a.base.localeCompare(b.base) * sort.dir;
+        const x = col.get(a), y = col.get(b);
+        if (x == null) return 1; if (y == null) return -1;
+        return (x - y) * sort.dir;
+      });
+  }, [mapped, q, minVol, minCons, onlyNet, onlyWatch, watch, sort]);
+  const paged = usePaged(shown, `${q}|${minVol}|${minCons}|${onlyNet}|${onlyWatch}|${sort.key}|${sort.dir}`);
+
+  return <>
+    <p className="note" style={{ margin: "0 0 10px" }}>Historical and live funding spreads between Bybit linear USDT perpetuals and Delta Exchange India. Basis is Delta mark price versus Bybit mark price.</p>
+    <div className="tablebox"><table><thead><tr>
+      <th aria-label="Watchlist" />
+      <th onClick={() => setSort({ key: "base", dir: sort.key === "base" ? -sort.dir : 1 })}>Pair</th>
+      <th>Best direction</th>
+      {COLS.map((c) => <th key={c.key} className={c.num ? "num" : ""} onClick={() => setSort((s) => ({ key: c.key, dir: s.key === c.key ? -s.dir : -1 }))}>{c.label}{sort.key === c.key ? (sort.dir === -1 ? " ▾" : " ▴") : ""}</th>)}
+      <th>Synced</th>
+    </tr></thead><tbody>
+      {paged.slice.map((r) => {
+        const f = freshness(r.bybit_delta_last_synced_at);
+        return <tr key={r.base}>
+          <td><button className={`star ${watch.includes(r.base) ? "on" : ""}`} onClick={() => toggle(r.base)} aria-label={`Watch ${r.base}`}>{watch.includes(r.base) ? "★" : "☆"}</button></td>
+          <td><Link className="pairname" href={`/pair/${r.base}?market=bybit-delta`}>{r.base}</Link></td>
+          <td className="dir">{dirLabel(r.direction)}</td>
+          {COLS.map((c) => <td key={c.key} className="num">{c.render(r)}</td>)}
+          <td><span className={`dot ${f.c}`} />{f.t}</td>
+        </tr>;
+      })}
+      {!shown.length && <tr><td colSpan={COLS.length + 4} className="empty">{loading ? "Loading pairs..." : "No Bybit-Delta data yet. Run Sync Bybit - Delta in Admin."}</td></tr>}
+    </tbody></table></div>
+    <Pager {...paged} />
+  </>;
 }
 
 function CoinDcxTable({ rows, q, minVol, onlyWatch, watch, toggle, loading }: {

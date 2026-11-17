@@ -19,7 +19,7 @@ export function ensureSchema(): Promise<void> {
   if (!schemaReady) {
     schemaReady = (async () => {
       const [r] = await db().query(
-        `SELECT (to_regclass('bybit_pair_stats') IS NOT NULL AND to_regclass('bybit_pair_features') IS NOT NULL
+        `SELECT (to_regclass('bybit_pair_stats') IS NOT NULL AND to_regclass('bybit_delta_pair_stats') IS NOT NULL AND to_regclass('bybit_pair_features') IS NOT NULL
                  AND to_regclass('bybit_wf_obs') IS NOT NULL AND to_regclass('bybit_wf_summary') IS NOT NULL
                  AND to_regclass('live_snapshot') IS NOT NULL
                  AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='live_snapshot' AND column_name='y_oi')
@@ -30,7 +30,8 @@ export function ensureSchema(): Promise<void> {
                  AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='bybit_pair_stats' AND column_name='ret1')
                  AND to_regclass('pair_dyn_features') IS NOT NULL AND to_regclass('bybit_pair_dyn_features') IS NOT NULL
                  AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='pair_stats' AND column_name='dyn_net365')
-                 AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='bybit_pair_stats' AND column_name='dyn_net365')) AS ok`);
+                 AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='bybit_pair_stats' AND column_name='dyn_net365')
+                 AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='bybit_delta_pair_stats' AND column_name='dyn_net365')) AS ok`);
       if (!r?.ok) for (const stmt of SCHEMA) await db().query(stmt);
     })().catch((e) => { schemaReady = null; throw e; });
   }
@@ -44,7 +45,7 @@ export async function q(text: string, params: any[] = []): Promise<any[]> {
 
 const DYN_COLS = ["dyn_direction text", "dyn_flips int", "dyn_flips30 int", "dyn_ret30 double precision", "dyn_net30 double precision",
   "dyn_ret90 double precision", "dyn_net90 double precision", "dyn_ret365 double precision", "dyn_net365 double precision"];
-const dynAlters = ["pair_stats", "bybit_pair_stats"].flatMap((t) => DYN_COLS.map((c) => `ALTER TABLE ${t} ADD COLUMN IF NOT EXISTS ${c}`));
+const dynAlters = ["pair_stats", "bybit_pair_stats", "bybit_delta_pair_stats"].flatMap((t) => DYN_COLS.map((c) => `ALTER TABLE ${t} ADD COLUMN IF NOT EXISTS ${c}`));
 
 export const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS pair_map (
@@ -75,6 +76,8 @@ export const SCHEMA = [
   `ALTER TABLE sync_state ADD COLUMN IF NOT EXISTS bybit_last_synced_at timestamptz`,
   `ALTER TABLE sync_state ADD COLUMN IF NOT EXISTS delta_backfill_days int`,
   `ALTER TABLE sync_state ADD COLUMN IF NOT EXISTS bybit_backfill_days int`,
+  `ALTER TABLE sync_state ADD COLUMN IF NOT EXISTS bybit_delta_last_synced_at timestamptz`,
+  `ALTER TABLE sync_state ADD COLUMN IF NOT EXISTS bybit_delta_backfill_days int`,
   `CREATE TABLE IF NOT EXISTS alert_log (base text PRIMARY KEY, sent_at timestamptz NOT NULL)`,
   `ALTER TABLE sync_state ADD COLUMN IF NOT EXISTS backfill_days int`,
   `CREATE TABLE IF NOT EXISTS pair_features (base text PRIMARY KEY, data jsonb NOT NULL, updated_at timestamptz DEFAULT now())`,
@@ -103,9 +106,14 @@ export const SCHEMA = [
   `ALTER TABLE live_snapshot ADD COLUMN IF NOT EXISTS y_vol double precision`,
   `ALTER TABLE live_snapshot ADD COLUMN IF NOT EXISTS y_oi double precision`,
   `CREATE TABLE IF NOT EXISTS bybit_pair_stats (LIKE pair_stats INCLUDING ALL)`,
+  `CREATE TABLE IF NOT EXISTS bybit_delta_pair_stats (LIKE pair_stats INCLUDING ALL)`,
   `ALTER TABLE bybit_pair_stats ADD COLUMN IF NOT EXISTS ret1 double precision`,
   `ALTER TABLE bybit_pair_stats ADD COLUMN IF NOT EXISTS ret365 double precision`,
   `ALTER TABLE bybit_pair_stats ADD COLUMN IF NOT EXISTS net365 double precision`,
   `ALTER TABLE bybit_pair_stats ADD COLUMN IF NOT EXISTS days365 int`,
+  `ALTER TABLE bybit_delta_pair_stats ADD COLUMN IF NOT EXISTS ret1 double precision`,
+  `ALTER TABLE bybit_delta_pair_stats ADD COLUMN IF NOT EXISTS ret365 double precision`,
+  `ALTER TABLE bybit_delta_pair_stats ADD COLUMN IF NOT EXISTS net365 double precision`,
+  `ALTER TABLE bybit_delta_pair_stats ADD COLUMN IF NOT EXISTS days365 int`,
   ...dynAlters,
 ];
