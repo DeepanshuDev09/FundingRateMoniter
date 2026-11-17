@@ -131,6 +131,25 @@ export async function bybitHistory(symbol: string, startMs: number, interval: nu
   return out;
 }
 
+/** Largest price move seen inside any 120-day window over the last year, from Bybit daily candles. */
+export async function bybitWorstMove(symbol: string, window = 120): Promise<number> {
+  const d = await bybitGet(`/v5/market/kline?category=linear&symbol=${encodeURIComponent(symbol)}&interval=D&limit=365`);
+  const candles = (d.result?.list ?? []).slice().reverse();
+  const hi = candles.map((k: any) => Number(k[2]));
+  const lo = candles.map((k: any) => Number(k[3]));
+  const cl = candles.map((k: any) => Number(k[4]));
+  let worst = 0;
+  for (let i = 0; i < candles.length; i++) {
+    let mx = 0, mn = Infinity;
+    for (let j = i + 1; j < Math.min(candles.length, i + 1 + window); j++) {
+      mx = Math.max(mx, hi[j]); mn = Math.min(mn, lo[j]);
+    }
+    if (mn === Infinity || !cl[i]) continue;
+    worst = Math.max(worst, mx / cl[i] - 1, 1 - mn / cl[i]);
+  }
+  return worst;
+}
+
 // ---------- Delta Exchange India ----------
 export async function deltaProducts() {
   const d = await get(`${DELTA}/v2/products?contract_types=perpetual_futures`);

@@ -123,8 +123,8 @@ function DynOthers({ rows }: { rows: any[] }) {
   );
 }
 
-function DynMarket({ title, peer, m, err, alt }: { title: string; peer: string; m: any; err?: string | null; alt: number }) {
-  const q = peer === "Bybit" ? "?market=bybit" : "";
+function DynMarket({ title, market, m, err, alt }: { title: string; market: string; m: any; err?: string | null; alt: number }) {
+  const q = market === "delta" ? "" : `?market=${market}`;
   if (err) return <section style={{ marginTop: 30 }}><h2>{title}: dynamic side</h2><div className="err"><b>Couldn&apos;t load this analysis.</b> {err}</div></section>;
   if (!m) return <section style={{ marginTop: 30 }}><h2>{title}: dynamic side</h2><div className="err">No dynamic-side analysis yet. In Admin, run &ldquo;Run recommendation analysis&rdquo; for this market.</div></section>;
   const byBase = Object.fromEntries(m.picks.map((x: any) => [x.base, x]));
@@ -198,7 +198,7 @@ function Excluded({ rows }: { rows: any[] }) {
   );
 }
 
-function Market({ title, peer, m, err, alt }: { title: string; peer: string; m: any; err?: string | null; alt: number }) {
+function Market({ title, market, m, err, alt }: { title: string; market: string; m: any; err?: string | null; alt: number }) {
   if (err) return <section style={{ marginTop: 30 }}><h2>{title}</h2><div className="err"><b>Couldn&apos;t load this ranking.</b> {err}</div></section>;
   if (!m || (!m.eligible.length && !m.excluded.length))
     return <section style={{ marginTop: 30 }}><h2>{title}</h2><div className="err">No {title} analysis yet. In Admin, run the matching market sync (the first run downloads a year of history), then &ldquo;Run recommendation analysis&rdquo;.</div></section>;
@@ -210,9 +210,9 @@ function Market({ title, peer, m, err, alt }: { title: string; peer: string; m: 
       <Validation v={m.validation} />
       <h3>Core picks: diversified basket</h3>
       <p className="note" style={{ marginTop: 0 }}>Best poor-case results first, skipping pairs whose daily spread moves together with one already chosen. Max 8.</p>
-      <Table rows={basket} alt={alt} q={peer === "Bybit" ? "?market=bybit" : ""} />
+      <Table rows={basket} alt={alt} q={market === "delta" ? "" : `?market=${market}`} />
       <h3 style={{ marginTop: 22 }}>All pairs that passed ({m.eligible.length})</h3>
-      <Table rows={m.eligible} alt={alt} q={peer === "Bybit" ? "?market=bybit" : ""} />
+      <Table rows={m.eligible} alt={alt} q={market === "delta" ? "" : `?market=${market}`} />
       {!!m.excluded.length && (
         <Excluded rows={m.excluded} />
       )}
@@ -236,7 +236,7 @@ export default function Recommend() {
   if (error) return <div className="wrap"><Link className="back" href="/">Back to all pairs</Link><div className="err"><b>Couldn&apos;t load picks.</b> {error}</div></div>;
   if (!data) return <div className="wrap"><Link className="back" href="/">Back to all pairs</Link><p className="muted">Loading...</p></div>;
 
-  const settings = (data.delta ?? data.bybit)?.settings ?? { horizon: 120, lookback: 90, shrink: 0.8 };
+  const settings = (data.delta ?? data.bybit ?? data.bybitDelta)?.settings ?? { horizon: 120, lookback: 90, shrink: 0.8 };
 
   return (
     <div className="wrap">
@@ -254,10 +254,12 @@ export default function Recommend() {
         <span className="note" style={{ paddingBottom: 8 }}>Green return = beats this figure.</span>
       </div>
 
-      <Market title="Binance ↔ Delta" peer="Delta" m={data.delta} err={data.errors?.delta} alt={alt} />
-      <DynMarket title="Binance ↔ Delta" peer="Delta" m={data.dynDelta} err={data.errors?.dynDelta} alt={alt} />
-      <Market title="Binance ↔ Bybit" peer="Bybit" m={data.bybit} err={data.errors?.bybit} alt={alt} />
-      <DynMarket title="Binance ↔ Bybit" peer="Bybit" m={data.dynBybit} err={data.errors?.dynBybit} alt={alt} />
+      <Market title="Binance ↔ Delta" market="delta" m={data.delta} err={data.errors?.delta} alt={alt} />
+      <DynMarket title="Binance ↔ Delta" market="delta" m={data.dynDelta} err={data.errors?.dynDelta} alt={alt} />
+      <Market title="Binance ↔ Bybit" market="bybit" m={data.bybit} err={data.errors?.bybit} alt={alt} />
+      <DynMarket title="Binance ↔ Bybit" market="bybit" m={data.dynBybit} err={data.errors?.dynBybit} alt={alt} />
+      <Market title="Bybit ↔ Delta" market="bybit-delta" m={data.bybitDelta} err={data.errors?.bybitDelta} alt={alt} />
+      <DynMarket title="Bybit ↔ Delta" market="bybit-delta" m={data.dynBybitDelta} err={data.errors?.dynBybitDelta} alt={alt} />
 
       <p className="note" style={{ marginTop: 16 }}>
         <b>How to read it:</b> Poor / Typical / Good are the 10th, 50th and 90th percentile net return over {settings.horizon} days on one leg&apos;s notional,

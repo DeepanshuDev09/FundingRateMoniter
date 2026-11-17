@@ -20,6 +20,8 @@ export function ensureSchema(): Promise<void> {
     schemaReady = (async () => {
       const [r] = await db().query(
         `SELECT (to_regclass('bybit_pair_stats') IS NOT NULL AND to_regclass('bybit_delta_pair_stats') IS NOT NULL AND to_regclass('bybit_pair_features') IS NOT NULL
+                 AND to_regclass('bybit_delta_pair_features') IS NOT NULL AND to_regclass('bybit_delta_wf_obs') IS NOT NULL
+                 AND to_regclass('bybit_delta_wf_summary') IS NOT NULL AND to_regclass('bybit_delta_pair_dyn_features') IS NOT NULL
                  AND to_regclass('bybit_wf_obs') IS NOT NULL AND to_regclass('bybit_wf_summary') IS NOT NULL
                  AND to_regclass('live_snapshot') IS NOT NULL
                  AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='live_snapshot' AND column_name='y_oi')
@@ -87,11 +89,17 @@ export const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS wf_summary (id int PRIMARY KEY, data jsonb NOT NULL, updated_at timestamptz DEFAULT now())`,
   `CREATE TABLE IF NOT EXISTS pair_dyn_features (base text PRIMARY KEY, data jsonb NOT NULL, updated_at timestamptz DEFAULT now())`,
   `CREATE TABLE IF NOT EXISTS bybit_pair_dyn_features (base text PRIMARY KEY, data jsonb NOT NULL, updated_at timestamptz DEFAULT now())`,
+  `CREATE TABLE IF NOT EXISTS bybit_delta_pair_dyn_features (base text PRIMARY KEY, data jsonb NOT NULL, updated_at timestamptz DEFAULT now())`,
   `CREATE TABLE IF NOT EXISTS bybit_pair_features (base text PRIMARY KEY, data jsonb NOT NULL, updated_at timestamptz DEFAULT now())`,
   `CREATE TABLE IF NOT EXISTS bybit_wf_obs (
      base text NOT NULL, fold int NOT NULL, m30 double precision, m90 double precision,
      md90 double precision, cons double precision, fwd double precision, PRIMARY KEY (base, fold))`,
   `CREATE TABLE IF NOT EXISTS bybit_wf_summary (id int PRIMARY KEY, data jsonb NOT NULL, updated_at timestamptz DEFAULT now())`,
+  `CREATE TABLE IF NOT EXISTS bybit_delta_pair_features (base text PRIMARY KEY, data jsonb NOT NULL, updated_at timestamptz DEFAULT now())`,
+  `CREATE TABLE IF NOT EXISTS bybit_delta_wf_obs (
+     base text NOT NULL, fold int NOT NULL, m30 double precision, m90 double precision,
+     md90 double precision, cons double precision, fwd double precision, PRIMARY KEY (base, fold))`,
+  `CREATE TABLE IF NOT EXISTS bybit_delta_wf_summary (id int PRIMARY KEY, data jsonb NOT NULL, updated_at timestamptz DEFAULT now())`,
   `ALTER TABLE pair_map ADD COLUMN IF NOT EXISTS coindcx_pair text`,
   `ALTER TABLE pair_map ADD COLUMN IF NOT EXISTS c_interval real`,
   `ALTER TABLE live_snapshot ADD COLUMN IF NOT EXISTS c_rate double precision`,

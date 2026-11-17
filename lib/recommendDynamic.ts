@@ -1,12 +1,12 @@
 import { q } from "./db";
-import { BYBIT_DIR_A, BYBIT_DIR_B, DIR_A, DIR_B, dynamicFlip, type Ev } from "./calc";
+import { BYBIT_DELTA_DIR_A, BYBIT_DELTA_DIR_B, BYBIT_DIR_A, BYBIT_DIR_B, DIR_A, DIR_B, dynamicFlip, type Ev } from "./calc";
 
 /**
  * Recommendation for the "flip sides automatically" strategy.
  * For every pair it answers: should this pair be traded with a FIXED side, with the DYNAMIC (flipping) side, or avoided?
  * It replays the real flip rule from lib/calc.ts over the real funding payments, so what is tested is what is traded.
  */
-export type DynMarket = "delta" | "bybit";
+export type DynMarket = "delta" | "bybit" | "bybit-delta";
 
 const DAY = 86400000;
 export const DYN = {
@@ -26,7 +26,8 @@ export const DYN = {
 };
 const GRID_THRESHOLDS = [0.0015, 0.0025, 0.005, 0.01];
 const GRID_BLOCKS = [4, 8, 24];
-export const dynTable = (m: DynMarket) => (m === "bybit" ? "bybit_pair_dyn_features" : "pair_dyn_features");
+export const dynTable = (m: DynMarket) => m === "bybit" ? "bybit_pair_dyn_features"
+  : m === "bybit-delta" ? "bybit_delta_pair_dyn_features" : "pair_dyn_features";
 
 const sum = (a: number[]) => a.reduce((x, y) => x + y, 0);
 const mean = (a: number[]) => (a.length ? sum(a) / a.length : 0);
@@ -48,15 +49,15 @@ function pearson(x: number[], y: number[]) {
 }
 
 /** Raw funding payments for a set of bases, Binance and the peer, about the last year. */
-export async function loadEvents(bases: string[], peer: string) {
+export async function loadEvents(bases: string[], peer: string, left = "binance") {
   const rows = await q(
     `SELECT base, exchange, ts, rate FROM funding_history
-      WHERE base = ANY($1::text[]) AND exchange IN ('binance', $2) AND ts > now() - interval '370 days'
-      ORDER BY base, ts`, [bases, peer]);
+      WHERE base = ANY($1::text[]) AND exchange IN ($2, $3) AND ts > now() - interval '370 days'
+      ORDER BY base, ts`, [bases, left, peer]);
   const out = new Map<string, { b: Ev[]; d: Ev[] }>();
   for (const r of rows) {
     let e = out.get(r.base); if (!e) { e = { b: [], d: [] }; out.set(r.base, e); }
-    (r.exchange === "binance" ? e.b : e.d).push({ ts: new Date(r.ts).getTime(), rate: Number(r.rate) });
+    (r.exchange === left ? e.b : e.d).push({ ts: new Date(r.ts).getTime(), rate: Number(r.rate) });
   }
   return out;
 }
@@ -87,7 +88,8 @@ function regimes(daily: number[]) {
 
 export function analyzeDynamic(base: string, b: Ev[], d: Ev[],
   o: { market: DynMarket; fee: number; volume: number | null; basis: number | null; maxMove: number | null }) {
-  const dirs: [string, string] = o.market === "bybit" ? [BYBIT_DIR_A, BYBIT_DIR_B] : [DIR_A, DIR_B];
+  const dirs: [string, string] = o.market === "bybit" ? [BYBIT_DIR_A, BYBIT_DIR_B]
+    : o.market === "bybit-delta" ? [BYBIT_DELTA_DIR_A, BYBIT_DELTA_DIR_B] : [DIR_A, DIR_B];
   const cost = o.fee + 4 * slip(o.volume);               // one flip (or one entry plus exit): 4 fills plus slippage
   const arr = dailyNet(b, d), last180 = nn(arr.slice(-180));
   const full = dynamicFlip(b, d, cost, dirs);

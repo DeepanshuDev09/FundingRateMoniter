@@ -1,5 +1,5 @@
 import { q } from "./db";
-import { binanceWorstMove } from "./exchanges";
+import { binanceWorstMove, bybitWorstMove } from "./exchanges";
 import { analyzeDynamic, loadEvents } from "./recommendDynamic";
 
 // ---- Settings ----
@@ -12,10 +12,12 @@ const SIMS = 500;
 const N = 365;
 const DAYMS = 86400000;
 const DIR_A = "SHORT_BINANCE_LONG_DELTA", DIR_B = "LONG_BINANCE_SHORT_DELTA";
-export type RecommendationMarket = "delta" | "bybit";
+export type RecommendationMarket = "delta" | "bybit" | "bybit-delta";
 const cfg = (market: RecommendationMarket) => market === "bybit"
-  ? { peer: "bybit", dyn: "bybit_pair_dyn_features", features: "bybit_pair_features", obs: "bybit_wf_obs", summary: "bybit_wf_summary", dirA: "SHORT_BINANCE_LONG_BYBIT", dirB: "LONG_BINANCE_SHORT_BYBIT", fee: 2 * (Number(process.env.TAKER_FEE_BINANCE ?? 0.0005) + Number(process.env.TAKER_FEE_BYBIT ?? 0.00055)) }
-  : { peer: "delta", dyn: "pair_dyn_features", features: "pair_features", obs: "wf_obs", summary: "wf_summary", dirA: DIR_A, dirB: DIR_B, fee: roundTripFee() };
+  ? { left: "binance", peer: "bybit", dyn: "bybit_pair_dyn_features", features: "bybit_pair_features", obs: "bybit_wf_obs", summary: "bybit_wf_summary", dirA: "SHORT_BINANCE_LONG_BYBIT", dirB: "LONG_BINANCE_SHORT_BYBIT", fee: 2 * (Number(process.env.TAKER_FEE_BINANCE ?? 0.0005) + Number(process.env.TAKER_FEE_BYBIT ?? 0.00055)) }
+  : market === "bybit-delta"
+    ? { left: "bybit", peer: "delta", dyn: "bybit_delta_pair_dyn_features", features: "bybit_delta_pair_features", obs: "bybit_delta_wf_obs", summary: "bybit_delta_wf_summary", dirA: "SHORT_BYBIT_LONG_DELTA", dirB: "LONG_BYBIT_SHORT_DELTA", fee: 2 * (Number(process.env.TAKER_FEE_BYBIT ?? 0.00055) + Number(process.env.TAKER_FEE_DELTA ?? 0.0005)) }
+    : { left: "binance", peer: "delta", dyn: "pair_dyn_features", features: "pair_features", obs: "wf_obs", summary: "wf_summary", dirA: DIR_A, dirB: DIR_B, fee: roundTripFee() };
 
 // ---- Small helpers ----
 const sum = (a: number[]) => a.reduce((x, y) => x + y, 0);
@@ -59,7 +61,7 @@ function ranks(a: number[]) {
 }
 
 // ---- Data: one value per UTC day (Binance funding minus Delta funding), aligned so index N-1 = yesterday ----
-export async function loadDaily(bases: string[], peer = "delta") {
+export async function loadDaily(bases: string[], peer = "delta", left = "binance") {
   const rows = await q(
     `SELECT base, exchange, FLOOR(EXTRACT(EPOCH FROM ts)/86400)::int AS d, SUM(rate) AS r
        FROM funding_history WHERE base = ANY($1::text[]) GROUP BY 1,2,3`, [bases]);
@@ -67,7 +69,7 @@ export async function loadDaily(bases: string[], peer = "delta") {
   const by = new Map<string, { b: Map<number, number>; d: Map<number, number> }>();
   for (const r of rows) {
     let e = by.get(r.base); if (!e) { e = { b: new Map(), d: new Map() }; by.set(r.base, e); }
-    if (r.exchange === "binance") e.b.set(Number(r.d), Number(r.r));
+    if (r.exchange === left) e.b.set(Number(r.d), Number(r.r));
     else if (r.exchange === peer) e.d.set(Number(r.d), Number(r.r));
   }
   const out = new Map<string, (number | null)[]>();
@@ -161,25 +163,33 @@ export function walkForward(arr: (number | null)[], market: RecommendationMarket
 export async function recInit(market: RecommendationMarket = "delta") {
   const c = cfg(market);
   await q(`DELETE FROM ${c.obs}`);
-  const rows = await q(`SELECT base FROM pair_map WHERE active ${market === "bybit" ? "AND bybit_symbol IS NOT NULL" : "AND delta_symbol IS NOT NULL"} ORDER BY base`);
+  const condition = market === "bybit" ? "bybit_symbol IS NOT NULL"
+    : market === "bybit-delta" ? "bybit_symbol IS NOT NULL AND delta_symbol IS NOT NULL" : "delta_symbol IS NOT NULL";
+  const rows = await q(`SELECT base FROM pair_map WHERE active AND ${condition} ORDER BY base`);
   return { bases: rows.map((r: any) => r.base as string) };
 }
 
 export async function recChunk(bases: string[], market: RecommendationMarket = "delta") {
   const c = cfg(market);
   const [daily, meta, events] = await Promise.all([
-    loadDaily(bases, c.peer),
-    q(`SELECT p.base,p.binance_symbol,p.b_mult,p.d_mult,p.y_mult,l.b_vol,l.d_vol,l.b_mark,l.d_mark,l.y_vol,l.y_mark
+    loadDaily(bases, c.peer, c.left),
+    q(`SELECT p.base,p.binance_symbol,p.bybit_symbol,p.b_mult,p.d_mult,p.y_mult,l.b_vol,l.d_vol,l.b_mark,l.d_mark,l.y_vol,l.y_mark
          FROM pair_map p LEFT JOIN live_snapshot l ON l.base=p.base WHERE p.base = ANY($1::text[])`, [bases]),
-    loadEvents(bases, c.peer).catch(() => new Map()),   // raw payments for the dynamic-side analysis
+    loadEvents(bases, c.peer, c.left).catch(() => new Map()),   // raw payments for the dynamic-side analysis
   ]);
-  const moves = await Promise.allSettled(meta.map((m: any) => binanceWorstMove(m.binance_symbol)));
+  const moves = await Promise.allSettled(meta.map((m: any) => c.left === "bybit"
+    ? bybitWorstMove(m.bybit_symbol)
+    : binanceWorstMove(m.binance_symbol)));
   const feats: any[] = [], obs: any[] = [], dynFeats: any[] = [];
   meta.forEach((m: any, i: number) => {
     const arr = daily.get(m.base);
     if (!arr) return;
-    const vol = market === "bybit" ? (m.b_vol != null && m.y_vol != null ? Math.min(m.b_vol, m.y_vol) : null) : (m.b_vol != null && m.d_vol != null ? Math.min(m.b_vol, m.d_vol) : null);
-    const basis = market === "bybit" ? (m.b_mark && m.y_mark ? (m.y_mark / (m.y_mult ?? 1)) / (m.b_mark / m.b_mult) - 1 : null) : (m.b_mark && m.d_mark ? m.d_mark / m.d_mult / (m.b_mark / m.b_mult) - 1 : null);
+    const leftVol = c.left === "bybit" ? m.y_vol : m.b_vol;
+    const leftMark = c.left === "bybit" ? m.y_mark : m.b_mark;
+    const leftMult = c.left === "bybit" ? (m.y_mult ?? 1) : m.b_mult;
+    const vol = leftVol != null && (c.peer === "bybit" ? m.y_vol : m.d_vol) != null ? Math.min(leftVol, c.peer === "bybit" ? m.y_vol : m.d_vol) : null;
+    const basis = leftMark && (c.peer === "bybit" ? m.y_mark : m.d_mark)
+      ? ((c.peer === "bybit" ? m.y_mark : m.d_mark) / (c.peer === "bybit" ? (m.y_mult ?? 1) : m.d_mult)) / (leftMark / leftMult) - 1 : null;
     const mv = moves[i].status === "fulfilled" ? (moves[i] as any).value : null;
     feats.push({ base: m.base, data: analyzePair(m.base, arr, vol, basis, mv, market) });
     const ev = events.get(m.base);

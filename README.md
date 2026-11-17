@@ -66,7 +66,7 @@ Limits: flips are assumed instant with no slippage; only the period where both e
 
 ## Dynamic-side recommendation
 
-`lib/recommendDynamic.ts` runs inside the existing admin step "Run recommendation analysis" (no new button). For each pair it replays the real flip rule on the real payments and decides **Use dynamic side**, **Use fixed side** (one direction nearly always wins) or **Avoid dynamic**.
+`lib/recommendDynamic.ts` runs inside the matching market analysis button in Admin. Binance - Delta, Binance - Bybit, and Bybit - Delta each have separate recommendation data and results on `/recommend`. For each pair it replays the real flip rule on the real payments and decides **Use dynamic side**, **Use fixed side** (one direction nearly always wins) or **Avoid dynamic**.
 
 - Test windows: 120 days, a new one every 10 days; each starts on the side the previous 30 days favoured (no hindsight). Gross is shrunk by 20% and each entry/exit/flip pays fees plus slippage.
 - A pair passes only if it has at least 3 regime changes in 180 days, regimes last about 4 days or more, no more than 60% of the gain over a fixed side comes from 3 months, break-even per flip is at least 3x the real flip cost, at least 75% of 12 threshold/block settings stay profitable, at least 70% of windows are profitable, and it beats a fixed side. There is no volume filter: thin pairs are flagged ("Very thin liquidity") and their higher slippage is included in the cost, but they are not excluded.

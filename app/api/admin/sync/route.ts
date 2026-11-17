@@ -24,11 +24,17 @@ export async function POST(req: Request) {
       return Response.json({ ok: true, ...(await syncHistory(10, body.since, body.market)) });
     }
     if (body.step === "rec_init") {
+      if (body.market !== "delta" && body.market !== "bybit" && body.market !== "bybit-delta")
+        return Response.json({ error: "Unknown recommendation market" }, { status: 400 });
       for (const stmt of SCHEMA) await db().query(stmt);
       return Response.json({ ok: true, ...(await recInit(body.market) ) });
     }
-    if (body.step === "rec_chunk") return Response.json({ ok: true, ...(await recChunk(body.bases, body.market)) });
-    if (body.step === "rec_finish") return Response.json({ ok: true, summary: await recFinish(body.market) });
+    if (body.step === "rec_chunk" || body.step === "rec_finish") {
+      if (body.market !== "delta" && body.market !== "bybit" && body.market !== "bybit-delta")
+        return Response.json({ error: "Unknown recommendation market" }, { status: 400 });
+      if (body.step === "rec_chunk") return Response.json({ ok: true, ...(await recChunk(body.bases, body.market)) });
+      return Response.json({ ok: true, summary: await recFinish(body.market) });
+    }
     return Response.json({ error: "Unknown step" }, { status: 400 });
   } catch (e: any) {
     return Response.json({ error: String(e.message) }, { status: 500 });

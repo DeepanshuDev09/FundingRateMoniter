@@ -51,24 +51,23 @@ export default function Admin() {
     setRunning("");
   };
 
-  const analyze = async () => {
-    stop.current = false; setRunning("analyze"); setLog([]);
+  const analyze = async (market: "delta" | "bybit" | "bybit-delta") => {
+    const marketName = market === "delta" ? "Binance - Delta" : market === "bybit" ? "Binance - Bybit" : "Bybit - Delta";
+    stop.current = false; setRunning(`analyze-${market}`); setLog([]);
     try {
-      add("Starting long-term analysis from the saved history (no exchange history calls except daily price candles).");
-      let done = 0, obs = 0, folds = 0;
-      for (const market of ["delta", "bybit"] as const) {
-        const { bases } = await call({ step: "rec_init", market });
-        add(`Scoring ${market === "delta" ? "Binance/Delta" : "Binance/Bybit"} pairs...`);
-        for (let i = 0; i < bases.length && !stop.current; i += 20) {
-          const r = await call({ step: "rec_chunk", market, bases: bases.slice(i, i + 20) });
-          done += r.analyzed; obs += r.observations;
-          setProgress(`${market}: ${Math.min(i + 20, bases.length)} of ${bases.length} pairs analysed`);
-        }
-        if (!stop.current) { const f = await call({ step: "rec_finish", market }); folds += f.summary.folds; }
+      add(`Starting ${marketName} recommendation analysis from saved history (daily price candles are fetched for margin checks).`);
+      let done = 0, obs = 0;
+      const { bases } = await call({ step: "rec_init", market });
+      add(`Scoring ${marketName} pairs...`);
+      for (let i = 0; i < bases.length && !stop.current; i += 20) {
+        const r = await call({ step: "rec_chunk", market, bases: bases.slice(i, i + 20) });
+        done += r.analyzed; obs += r.observations;
+        setProgress(`${marketName}: ${Math.min(i + 20, bases.length)} of ${bases.length} pairs analysed`);
       }
-      if (stop.current) { add("Stopped."); }
+      if (stop.current) { add(`Stopped ${marketName} analysis.`); }
       else {
-        add(`Done. ${done} pairs scored, ${obs} walk-forward observations, ${folds} test dates. See /recommend.`);
+        const f = await call({ step: "rec_finish", market });
+        add(`Done. ${done} pairs scored, ${obs} walk-forward observations, ${f.summary.folds} test dates. See /recommend.`);
       }
     } catch (e: any) { add(`Error: ${e.message}`); }
     setRunning("");
@@ -103,9 +102,11 @@ export default function Admin() {
             <button onClick={() => syncMarket("bybit-delta")} disabled={!!running}>Sync Bybit - Delta</button>
           </div>
           <h2 style={{ marginTop: 18 }}>2. Run long-term analysis</h2>
-          <p className="sub">Scores every pair for a 4-month hold and tests the ranking rules against past data. Run it after a sync. It takes about a minute.</p>
+          <p className="sub">Choose a market to score pairs for a 4-month hold and test its ranking rules against past data. Run the matching analysis after a sync.</p>
           <div className="bar">
-            <button onClick={analyze} disabled={!!running}>Run recommendation analysis</button>
+            <button onClick={() => analyze("delta")} disabled={!!running}>Analyze Binance - Delta</button>
+            <button onClick={() => analyze("bybit")} disabled={!!running}>Analyze Binance - Bybit</button>
+            <button onClick={() => analyze("bybit-delta")} disabled={!!running}>Analyze Bybit - Delta</button>
             {running && <button onClick={() => (stop.current = true)}>Stop</button>}
           </div>
           {progress && <p><b>{progress}</b></p>}
