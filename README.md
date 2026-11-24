@@ -30,7 +30,7 @@ Next.js 15 + Neon Postgres + Vercel Functions. Monitors funding rates of the sam
 ## Check these before trusting the numbers
 
 - **Delta funding history** is read from the candle endpoint (`FUNDING:<symbol>`, 1h candles) and sampled at settlement hours.
-  Confirm with `/api/debug/delta` that (a) `funding_rate` / candle `close` is in percent (code divides by 100) and
+  Confirm with `/api/debug/delta` that (a) `funding_rate` / candle `close` is a decimal rate (code stores it unchanged, not divided by 100) and
   (b) the funding interval and settlement hour match `DELTA_FUNDING_INTERVAL_HOURS` / `DELTA_FUNDING_HOUR_OFFSET`.
   If either assumption is wrong, 30d returns will be off by a constant factor.
 - **Contract mismatch:** Binance is USDT-margined, Delta India perps are USD-quoted. Check contract sizes for any pair you actually trade.

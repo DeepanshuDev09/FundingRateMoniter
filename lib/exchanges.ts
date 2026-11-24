@@ -166,8 +166,10 @@ export async function deltaTickers() {
   const d = await get(`${DELTA}/v2/tickers?contract_types=perpetual_futures`);
   const out = new Map<string, { rate: number; mark: number; vol: number; oi: number }>();
   for (const t of d.result as any[]) {
+    const rate = Number(t.funding_rate);
+    if (!Number.isFinite(rate)) continue;
     out.set(t.symbol, {
-      rate: Number(t.funding_rate) / 100, // Delta reports percent. Confirm via /api/debug/delta.
+      rate,
       mark: Number(t.mark_price),
       vol: Number(t.turnover_usd ?? 0),
       oi: Number(t.oi_value_usd ?? 0),
@@ -188,7 +190,7 @@ export async function deltaHistory(symbol: string, startMs: number): Promise<(Ev
   }
   return candles
     .filter((c) => (Math.floor(c.time / 3600) % DELTA_INTERVAL) === DELTA_OFFSET)
-    .map((c) => ({ ts: c.time * 1000, rate: Number(c.close) / 100, interval: DELTA_INTERVAL }));
+    .map((c) => ({ ts: c.time * 1000, rate: Number(c.close), interval: DELTA_INTERVAL }));
 }
 
 export async function deltaRaw(symbol: string) {
