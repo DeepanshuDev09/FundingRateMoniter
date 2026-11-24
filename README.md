@@ -17,7 +17,7 @@ Next.js 15 + Neon Postgres + Vercel Functions. Monitors funding rates of the sam
 ## Deploy
 
 1. Push this folder to GitHub and import it in Vercel.
-2. Add **Neon Postgres** from the Vercel Marketplace (sets `DATABASE_URL`).
+2. Add **Neon Postgres** and choose an India/Mumbai region if Neon offers one for your project. Confirm the database's region in Neon; adding it through Vercel does not automatically place it in India.
 3. Add `ADMIN_PASSWORD` (and the other variables in `.env.example`), then deploy.
 4. Open `/admin`, sign in, and run the sync button for each market you want to update. Bybit - Delta has its own history sync and progress cursor.
 5. Verify Delta units (see below):
@@ -25,7 +25,7 @@ Next.js 15 + Neon Postgres + Vercel Functions. Monitors funding rates of the sam
 
 ## Region
 
-`vercel.json` pins functions to `bom1` (Mumbai). Binance blocks some regions (US IPs commonly get HTTP 451), and Vercel's default region is in the US. If you see 451/403 errors, try `sin1` or another region.
+`vercel.json` pins all Vercel Functions, including API routes, to `bom1` (Mumbai), so their outbound exchange API requests originate from that region. This does not move the Neon database or the exchange providers' own servers; those locations are controlled separately by their providers. Binance or Bybit may block requests from some regions (US IPs commonly get HTTP 451); changing the Vercel region to troubleshoot a block also changes where the functions run.
 
 ## Check these before trusting the numbers
 
