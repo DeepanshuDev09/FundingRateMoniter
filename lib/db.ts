@@ -36,18 +36,20 @@ export function ensureSchema(): Promise<void> {
                  AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='bybit_delta_pair_stats' AND column_name='dyn_net365')) AS ok`);
       if (!r?.ok) for (const stmt of SCHEMA) await db().query(stmt);
 
-      // Delta tickers/candles changed in older app builds: funding_history stored Delta decimal
-      // values as if they were percent values, so correct one time without reapplying on restarts.
+      // One-time repair. Older builds stored Delta funding in the wrong unit (Delta reports PERCENT, the app needs decimals) and a
+      // previous "fix" multiplied it by 100 again, so Delta numbers in the database cannot be trusted. They are deleted here and
+      // re-downloaded by the next sync (run Admin sync), together with everything computed from them.
       await db().query(`CREATE TABLE IF NOT EXISTS data_migrations (name text PRIMARY KEY, applied_at timestamptz DEFAULT now())`);
-      const [migration] = await db().query(
-        `SELECT 1 AS applied FROM data_migrations WHERE name='delta-funding-decimal-v1'`);
-      if (!migration) {
-        await db().query(`UPDATE funding_history SET rate=rate*100 WHERE exchange='delta'`);
-        await db().query(`UPDATE live_snapshot SET d_rate=d_rate*100 WHERE d_rate IS NOT NULL`);
-        await db().query(`DELETE FROM pair_stats`);
-        await db().query(`DELETE FROM bybit_delta_pair_stats`);
-        await db().query(
-          `INSERT INTO data_migrations(name) VALUES('delta-funding-decimal-v1') ON CONFLICT (name) DO NOTHING`);
+      const [fixed] = await db().query(`SELECT 1 AS applied FROM data_migrations WHERE name='delta-funding-percent-v2'`);
+      if (!fixed) {
+        await db().query(`DELETE FROM funding_history WHERE exchange='delta'`);
+        await db().query(`UPDATE live_snapshot SET d_rate=NULL, d_interval=NULL`);
+        await db().query(`UPDATE sync_state SET last_synced_at=NULL, delta_last_synced_at=NULL, bybit_delta_last_synced_at=NULL,
+                                                backfill_days=0, delta_backfill_days=0, bybit_delta_backfill_days=0`);
+        for (const t of ["pair_stats", "bybit_delta_pair_stats", "pair_features", "wf_obs", "wf_summary", "pair_dyn_features",
+                         "bybit_delta_pair_features", "bybit_delta_wf_obs", "bybit_delta_wf_summary", "bybit_delta_pair_dyn_features"])
+          await db().query(`DELETE FROM ${t}`);
+        await db().query(`INSERT INTO data_migrations(name) VALUES('delta-funding-percent-v2'),('delta-funding-decimal-v1') ON CONFLICT (name) DO NOTHING`);
       }
     })().catch((e) => { schemaReady = null; throw e; });
   }

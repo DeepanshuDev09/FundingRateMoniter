@@ -85,6 +85,9 @@ export async function refreshLive() {
   const oldY = new Map<string, any>();
   if (!yl) for (const o of await q(`SELECT base,y_rate,y_interval,y_mark,y_vol,y_oi FROM live_snapshot WHERE y_rate IS NOT NULL`)) oldY.set(o.base, o);
   const dInterval = Number(process.env.DELTA_FUNDING_INTERVAL_HOURS ?? 8);
+  // The real Delta schedule (8h or 4h) is detected while syncing history. Use the newest stored interval, not one global setting.
+  const dMap = new Map<string, number>();
+  for (const o of await q(`SELECT DISTINCT ON (base) base, interval_hours FROM funding_history WHERE exchange='delta' ORDER BY base, ts DESC`)) dMap.set(o.base, Number(o.interval_hours));
   const rows: any[] = [];
   for (const p of pairs) {
     const b = bl.get(p.binance_symbol), d = p.delta_symbol ? dl.get(p.delta_symbol) : null;
@@ -92,7 +95,7 @@ export async function refreshLive() {
     const c = p.coindcx_pair ? cl.get(p.coindcx_pair) : null;
     const y = p.bybit_symbol ? (yl ? yl.get(p.bybit_symbol) : oldY.get(p.base) && { rate: oldY.get(p.base).y_rate, interval: oldY.get(p.base).y_interval, mark: oldY.get(p.base).y_mark, vol: oldY.get(p.base).y_vol, oi: oldY.get(p.base).y_oi }) : null;
     rows.push({
-      base: p.base, b_rate: b.rate, d_rate: d?.rate ?? null, b_interval: b.interval, d_interval: d ? dInterval : null,
+      base: p.base, b_rate: b.rate, d_rate: d?.rate ?? null, b_interval: b.interval, d_interval: d ? (dMap.get(p.base) ?? dInterval) : null,
       b_mark: b.mark, d_mark: d?.mark ?? null, b_vol: b.vol, d_vol: d?.vol ?? null, d_oi: d?.oi ?? null,
       c_rate: c ? c.rate : null, c_mark: c ? c.mark : null,
       y_rate: y ? y.rate : null, y_interval: y ? y.interval : null, y_mark: y ? y.mark : null, y_vol: y ? y.vol : null, y_oi: y ? y.oi : null,

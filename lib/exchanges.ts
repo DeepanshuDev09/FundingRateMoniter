@@ -4,8 +4,12 @@ const BIN = "https://fapi.binance.com";
 // Bybit has several equivalent API hosts; some regions block one but not the other, so we try them in order.
 const BYBIT_HOSTS = [process.env.BYBIT_BASE, "https://api.bybit.com", "https://api.bytick.com"].filter(Boolean) as string[];
 const DELTA = "https://api.india.delta.exchange";
+// Funding schedule used until the data proves a shorter one (see deltaPayments). Delta only ever shortens intervals.
 const DELTA_INTERVAL = Number(process.env.DELTA_FUNDING_INTERVAL_HOURS ?? 8);
-const DELTA_OFFSET = Number(process.env.DELTA_FUNDING_HOUR_OFFSET ?? 0);
+// Delta reports funding in PERCENT (0.01 means 0.01%: the documented base interest rate), while Binance and Bybit report decimals
+// (0.0001 means 0.01%). Everything stored in the database is a decimal, so Delta values are divided by 100 here.
+const DELTA_IN_PERCENT = process.env.DELTA_RATE_IN_PERCENT !== "false";
+const dRate = (v: number) => (DELTA_IN_PERCENT ? v / 100 : v);
 
 async function get(url: string): Promise<any> {
   const r = await fetch(url, { cache: "no-store", headers: { "User-Agent": "funding-monitor/0.1", Accept: "application/json" } });
@@ -166,7 +170,7 @@ export async function deltaTickers() {
   const d = await get(`${DELTA}/v2/tickers?contract_types=perpetual_futures`);
   const out = new Map<string, { rate: number; mark: number; vol: number; oi: number }>();
   for (const t of d.result as any[]) {
-    const rate = Number(t.funding_rate);
+    const rate = dRate(Number(t.funding_rate));
     if (!Number.isFinite(rate)) continue;
     out.set(t.symbol, {
       rate,
@@ -178,7 +182,48 @@ export async function deltaTickers() {
   return out;
 }
 
-/** Funding history from Delta's candle endpoint (FUNDING:<symbol>), 1h candles sampled at settlement hours. */
+/**
+ * Turns Delta's hourly FUNDING candles into one record per funding payment.
+ * The rate is constant inside a funding interval, so every hourly candle of a block repeats the same value. We must keep exactly one
+ * candle per block. The block length is not fixed: it was 8h and some contracts (NOT, NEIRO, ...) moved to 4h in late 2025.
+ * It is read from the data itself: a rate can only change on a block boundary, so changes at 04/12/20 UTC prove a 4h schedule.
+ * Intervals only ever get shorter, and a switch is accepted only when it is confirmed by several later changes, so a single
+ * off-schedule correction does not trigger it. Values are returned as decimals (percent / 100).
+ */
+export function deltaPayments(candles: { time: number | string; close: number | string }[], fallbackHours = DELTA_INTERVAL, inPercent = DELTA_IN_PERCENT) {
+  const byTime = new Map<number, number>();
+  for (const c of candles) { const t = Number(c.time), v = Number(c.close); if (Number.isFinite(t) && Number.isFinite(v) && c.close !== null && c.close !== "") byTime.set(t, v); }
+  const cs = [...byTime.entries()].sort((a, b) => a[0] - b[0]);
+  const changes: number[] = [];                                  // hour index of every change between two adjacent hourly candles
+  for (let i = 1; i < cs.length; i++) if (cs[i][0] - cs[i - 1][0] === 3600 && cs[i][1] !== cs[i - 1][1]) changes.push(Math.floor(cs[i][0] / 3600));
+
+  let cur = fallbackHours;
+  const eras: { from: number; hours: number }[] = [{ from: -Infinity, hours: cur }];   // from = hour index
+  for (let i = 0; i < changes.length; i++) {
+    if (changes[i] % cur === 0) continue;
+    const next = changes.slice(i, i + 5);
+    if (next.length < 3) break;
+    for (const x of [4, 2, 1]) {
+      if (x >= cur) continue;
+      const onGrid = next.filter((h) => h % x === 0).length;
+      // changes that only a grid of x hours can explain (not the next coarser grid of 2x hours): they are the real evidence
+      const needsX = next.filter((h) => h % x === 0 && h % (2 * x) !== 0);
+      if (onGrid >= Math.ceil(next.length * 0.8) && needsX.length >= 2) {
+        cur = x; eras.push({ from: needsX[0], hours: x });
+        break;
+      }
+    }
+  }
+  const eraAt = (h: number) => { let e = eras[0]; for (const x of eras) if (x.from <= h) e = x; return e.hours; };
+  const out: { ts: number; rate: number; interval: number }[] = [];
+  for (const [t, v] of cs) {
+    const h = Math.floor(t / 3600), hours = eraAt(h);
+    if (h % hours === 0) out.push({ ts: t * 1000, rate: inPercent ? v / 100 : v, interval: hours });
+  }
+  return out;
+}
+
+/** Funding history from Delta's candle endpoint (FUNDING:<symbol>): one decimal rate per funding payment. */
 export async function deltaHistory(symbol: string, startMs: number): Promise<(Ev & { interval: number })[]> {
   const end = Math.floor(Date.now() / 1000);
   const start = Math.floor(startMs / 1000);
@@ -188,9 +233,7 @@ export async function deltaHistory(symbol: string, startMs: number): Promise<(Ev
     const d = await get(`${DELTA}/v2/history/candles?resolution=1h&symbol=FUNDING:${symbol}&start=${t}&end=${Math.min(t + CHUNK, end)}`);
     candles.push(...(d.result as any[]));
   }
-  return candles
-    .filter((c) => (Math.floor(c.time / 3600) % DELTA_INTERVAL) === DELTA_OFFSET)
-    .map((c) => ({ ts: c.time * 1000, rate: Number(c.close), interval: DELTA_INTERVAL }));
+  return deltaPayments(candles);
 }
 
 export async function deltaRaw(symbol: string) {
