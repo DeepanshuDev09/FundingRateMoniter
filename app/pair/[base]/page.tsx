@@ -263,7 +263,12 @@ function WhyDiffer({ p, bybit, bybitDelta, basis, gapHistory }: { p: any; bybit:
   const say = (l: any) => {
     const d = l.d, k: Check = d.status;
     if (k === "consistent") return `${l.name}: the funding is explained by a real price gap on that exchange (${p3(d.premium)} against its own index).`;
-    if (k === "mismatch") return `${l.name}: funding implies a premium of ${p3(d.implied?.mid)}, but its price is ${p3(d.premium)} against its own index. Funding is bigger than its price gap explains. Check that exchange's index price, its formula, and whether the history is settled or predicted rates.`;
+    if (k === "mismatch") {
+      const smaller = d.expected != null && l.rate != null && Math.abs(l.rate) < Math.abs(d.expected);
+      return `${l.name}: at its current premium of ${p3(d.premium)} the formula would give about ${p3(d.expected)} per payment, but funding is ${p3(l.rate)}. ` + (smaller
+        ? "Funding is smaller than the price gap suggests. The gap may be recent (funding averages the whole interval), or this exchange measures premium differently (for example from order-book impact prices rather than the mark price). Check again after its next settlement."
+        : "Funding is larger than the price gap suggests. Check that exchange's index price, its formula, and whether the history is settled or predicted rates.");
+    }
     if (k === "capped") return `${l.name}: the rate is sitting at its funding cap, so the real pressure may be larger than the rate shows.`;
     return `${l.name}: not enough data yet. It needs the mark and index price from the latest live refresh.`;
   };

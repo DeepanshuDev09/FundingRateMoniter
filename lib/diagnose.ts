@@ -19,6 +19,13 @@ export function impliedPremium(rate: number, intervalH: number, o: { scaleBand?:
   return { kind: "exact" as const, lo: p, hi: p, mid: p };
 }
 
+/** Funding the formula would give for a premium: the forward direction of impliedPremium. */
+export function expectedFunding(premium: number, intervalH: number, o: { scaleBand?: boolean } = {}) {
+  const I = (INTEREST_8H * intervalH) / 8;
+  const band = o.scaleBand ? (BAND * intervalH) / 8 : BAND;
+  return premium + Math.max(-band, Math.min(band, I - premium));
+}
+
 export type Check = "consistent" | "mismatch" | "capped" | "unknown";
 export function diagnoseLeg(leg: Leg) {
   const premium = leg.mark && leg.index ? leg.mark / leg.index - 1 : null;
@@ -35,7 +42,8 @@ export function diagnoseLeg(leg: Leg) {
       : Math.abs(premium - implied.mid) <= Math.max(0.0003, 0.5 * Math.abs(implied.mid));
     status = ok ? "consistent" : "mismatch";
   }
-  return { premium, implied, status, atCap, cap: leg.cap ?? null, floor: leg.floor ?? null };
+  const expected = premium != null && leg.interval ? expectedFunding(premium, leg.interval) : null;   // what funding would be at the premium visible right now
+  return { premium, implied, expected, status, atCap, cap: leg.cap ?? null, floor: leg.floor ?? null };
 }
 
 export const CHECK_LABEL: Record<Check, string> = { consistent: "Matches its price gap", mismatch: "Does not match", capped: "At funding cap", unknown: "No data" };
