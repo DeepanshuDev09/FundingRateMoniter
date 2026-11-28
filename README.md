@@ -76,3 +76,10 @@ Limits: flips are assumed instant with no slippage; only the period where both e
 - Delta reports funding in **percent** (0.01 = 0.01%, its base interest rate). Binance and Bybit report decimals (0.0001 = 0.01%). All stored rates are decimals, so Delta values are now divided by 100 when they are read (`DELTA_RATE_IN_PERCENT=false` turns this off).
 - Delta funding history is now one record per real payment. The block length (8h, or 4h on contracts such as NOT and NEIRO since late 2025) is read from the data itself instead of one global `DELTA_FUNDING_INTERVAL_HOURS`; that variable is only the starting assumption. The live "Delta interval" column uses the detected value.
 - On the first start of this version a one-time repair deletes the stored Delta history and everything computed from it, then the next Admin sync downloads it again. **After deploying, run the Admin sync for all markets, then the recommendation analysis.**
+
+
+## Why funding differs between exchanges (price-gap diagnostics)
+
+Each live refresh now also stores each exchange's index price and funding caps (Binance `fundingInfo`, Bybit `instruments-info`), and one **price-gap** point per coin per hour (kept 120 days) in `price_gap_history`.
+The pair page has a new box, "Why the two exchanges pay different funding", showing for each exchange: funding per payment, interval, its premium against its own index, the premium that funding *implies* (Delta's documented formula inverted), its funding cap, and a check that says whether the funding is explained by a real price gap, is at a cap, or does not match. The main tables have a one-word version of that check.
+Notes: Delta's index price is read from the ticker field `spot_price` (shown as "No data" if absent); set `DELTA_FUNDING_CAP` (a decimal per interval, e.g. 0.01) to get a Delta cap flag. The implied premium assumes the 8-hour formula, so treat it as a rough check. Bybit's new N/8 formula rolls out on Nov 24, Nov 26 and Dec 1, 2026 for contracts under 8h.

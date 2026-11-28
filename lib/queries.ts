@@ -1,12 +1,13 @@
 import { q } from "./db";
 import { perDay } from "./calc";
+import { diagnoseLeg } from "./diagnose";
 
 export async function getPairs() {
   const rows = await q(
     `SELECT p.base,p.binance_symbol,p.delta_symbol,p.b_mult,p.d_mult,p.coindcx_pair,p.c_interval,p.bybit_symbol,p.y_mult,p.y_interval AS mapped_y_interval,
             s.dyn_direction,s.dyn_flips,s.dyn_flips30,s.dyn_ret30,s.dyn_net30,s.dyn_ret90,s.dyn_net90,s.dyn_ret365,s.dyn_net365,
             s.direction,s.days,s.days90,s.days365,s.ret1,s.ret7,s.ret30,s.net30,s.ret90,s.net90,s.ret365,s.net365,s.apr,s.trend3_apr,s.consistency,s.spread_std,s.sign_flips,s.breakeven_days,
-            l.c_rate,l.c_mark,l.b_rate,l.d_rate,l.b_interval,l.d_interval,l.b_mark,l.d_mark,l.b_vol,l.d_vol,l.d_oi,l.y_rate,l.y_interval,l.y_mark,l.y_vol,l.y_oi,l.ts AS live_ts,
+            l.c_rate,l.c_mark,l.b_rate,l.d_rate,l.b_interval,l.d_interval,l.b_mark,l.d_mark,l.b_vol,l.d_vol,l.d_oi,l.y_rate,l.y_interval,l.y_mark,l.y_vol,l.y_oi,l.b_index,l.d_index,l.y_index,l.b_cap,l.b_floor,l.y_cap,l.y_floor,l.ts AS live_ts,
             y.dyn_direction AS y_dyn_direction,y.dyn_flips AS y_dyn_flips,y.dyn_flips30 AS y_dyn_flips30,y.dyn_ret30 AS y_dyn_ret30,y.dyn_net30 AS y_dyn_net30,y.dyn_ret90 AS y_dyn_ret90,y.dyn_net90 AS y_dyn_net90,y.dyn_ret365 AS y_dyn_ret365,y.dyn_net365 AS y_dyn_net365,
             y.direction AS y_direction,y.days AS y_days,y.days90 AS y_days90,y.days365 AS y_days365,y.ret1 AS y_ret1,y.ret7 AS y_ret7,y.ret30 AS y_ret30,y.net30 AS y_net30,y.ret90 AS y_ret90,y.net90 AS y_net90,y.ret365 AS y_ret365,y.net365 AS y_net365,y.apr AS y_apr,y.trend3_apr AS y_trend3_apr,y.consistency AS y_consistency,y.spread_std AS y_spread_std,y.sign_flips AS y_sign_flips,y.breakeven_days AS y_breakeven_days,
             yd.dyn_direction AS yd_dyn_direction,yd.dyn_flips AS yd_dyn_flips,yd.dyn_flips30 AS yd_dyn_flips30,yd.dyn_ret30 AS yd_dyn_ret30,yd.dyn_net30 AS yd_dyn_net30,yd.dyn_ret90 AS yd_dyn_ret90,yd.dyn_net90 AS yd_dyn_net90,yd.dyn_ret365 AS yd_dyn_ret365,yd.dyn_net365 AS yd_dyn_net365,
@@ -23,8 +24,13 @@ export async function getPairs() {
     const yDeltaLive = yd != null && dd != null ? yd - dd : null;
     const live = bd != null && dd != null ? bd - dd : null;
     const basis = r.b_mark && r.d_mark ? (r.d_mark / r.d_mult) / (r.b_mark / r.b_mult) - 1 : null;
+    const dCap = process.env.DELTA_FUNDING_CAP ? Number(process.env.DELTA_FUNDING_CAP) : null;   // optional: Delta's funding cap per interval
+    const yInt = r.y_interval ?? r.mapped_y_interval ?? 8;
     return {
       ...r,
+      b_diag: diagnoseLeg({ rate: r.b_rate, interval: r.b_interval, mark: r.b_mark, index: r.b_index, cap: r.b_cap, floor: r.b_floor }),
+      d_diag: diagnoseLeg({ rate: r.d_rate, interval: r.d_interval, mark: r.d_mark, index: r.d_index, cap: dCap, floor: dCap != null ? -dCap : null }),
+      y_diag: diagnoseLeg({ rate: r.y_rate, interval: yInt, mark: r.y_mark, index: r.y_index, cap: r.y_cap, floor: r.y_floor }),
       c_apr: cd == null ? null : cd * 365,
       d_apr: dd == null ? null : dd * 365,
       dcx_apr: cd != null && dd != null ? Math.abs(cd - dd) * 365 : null,

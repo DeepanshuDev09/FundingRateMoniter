@@ -3,6 +3,7 @@ import Link from "next/link";
 import { use, useEffect, useState } from "react";
 import { Bar, CartesianGrid, ComposedChart, Legend, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { cls, dirLabel, freshness, pct, signedPct, usd } from "@/lib/format";
+import { BYBIT_FORMULA_NOTE, CHECK_LABEL, type Check } from "@/lib/diagnose";
 
 export default function PairPage({ params, searchParams }: { params: Promise<{ base: string }>; searchParams: Promise<{ market?: string }> }) {
   const { base } = use(params);
@@ -82,6 +83,8 @@ export default function PairPage({ params, searchParams }: { params: Promise<{ b
         </div>
         {!series.length && <p className="muted">History for this pair hasn&apos;t synced yet. It joins the rotation automatically.</p>}
       </div>
+
+      <WhyDiffer p={p} bybit={by} bybitDelta={bybitDelta} basis={basis} gapHistory={data.gapHistory ?? []} />
 
       {data.dyn && <FlipLog dyn={data.dyn} />}
 
@@ -241,6 +244,77 @@ function FlipLog({ dyn }: { dyn: any }) {
           </table>
         </div>
       ) : <p className="muted">No flips in the available history.</p>}
+    </div>
+  );
+}
+
+const p3 = (v: number | null | undefined) => (v == null ? "-" : `${v >= 0 ? "+" : ""}${(v * 100).toFixed(3)}%`);
+
+/** Explains WHY the two exchanges pay different funding: price premium vs own index, what funding implies, caps, and the gap between exchanges. */
+function WhyDiffer({ p, bybit, bybitDelta, basis, gapHistory }: { p: any; bybit: boolean; bybitDelta: boolean; basis: number | null; gapHistory: any[] }) {
+  const yInt = p.y_interval ?? p.mapped_y_interval ?? 8;
+  const legs = (bybitDelta
+    ? [{ name: "Bybit", rate: p.y_rate, interval: yInt, d: p.y_diag }, { name: "Delta", rate: p.d_rate, interval: p.d_interval, d: p.d_diag }]
+    : bybit
+      ? [{ name: "Binance", rate: p.b_rate, interval: p.b_interval, d: p.b_diag }, { name: "Bybit", rate: p.y_rate, interval: yInt, d: p.y_diag }]
+      : [{ name: "Binance", rate: p.b_rate, interval: p.b_interval, d: p.b_diag }, { name: "Delta", rate: p.d_rate, interval: p.d_interval, d: p.d_diag }]
+  ).filter((l) => l.d);
+  if (!legs.length) return null;
+  const say = (l: any) => {
+    const d = l.d, k: Check = d.status;
+    if (k === "consistent") return `${l.name}: the funding is explained by a real price gap on that exchange (${p3(d.premium)} against its own index).`;
+    if (k === "mismatch") return `${l.name}: funding implies a premium of ${p3(d.implied?.mid)}, but its price is ${p3(d.premium)} against its own index. Funding is bigger than its price gap explains. Check that exchange's index price, its formula, and whether the history is settled or predicted rates.`;
+    if (k === "capped") return `${l.name}: the rate is sitting at its funding cap, so the real pressure may be larger than the rate shows.`;
+    return `${l.name}: not enough data yet. It needs the mark and index price from the latest live refresh.`;
+  };
+  const shortInterval = (bybit || bybitDelta) && Number(yInt) < 8;
+  return (
+    <div className="box" style={{ marginTop: 14 }}>
+      <h2>Why the two exchanges pay different funding</h2>
+      <p className="muted" style={{ margin: "0 0 8px" }}>
+        Funding is not a market price. Each exchange builds it from its own premium (perpetual price against its own index price) and its own formula. Delta&apos;s documented formula is
+        {" "}average premium plus a clamp of (interest rate minus premium) at ±0.05%, with interest 0.01% per 8 hours. Inverting it shows which premium a funding rate implies.
+        {" "}This is a rough check: the premium shown is one instant, funding is an average over the interval, and shorter-interval formulas may scale differently.
+      </p>
+      <div className="tablebox">
+        <table>
+          <thead><tr><th>Exchange</th><th className="num">Funding per payment</th><th className="num">Interval</th><th className="num">Premium now (vs own index)</th><th className="num">Premium implied by funding</th><th className="num">Funding cap</th><th>Check</th></tr></thead>
+          <tbody>
+            {legs.map((l) => (
+              <tr key={l.name}>
+                <td>{l.name}</td>
+                <td className={`num ${cls(l.rate)}`}>{p3(l.rate)}</td>
+                <td className="num">{l.interval ? `${l.interval}h` : "-"}</td>
+                <td className="num">{p3(l.d.premium)}</td>
+                <td className="num">{l.d.implied ? (l.d.implied.kind === "band" ? `${p3(l.d.implied.lo)} to ${p3(l.d.implied.hi)}` : p3(l.d.implied.mid)) : "-"}</td>
+                <td className="num">{l.d.cap != null || l.d.floor != null ? `${p3(l.d.floor)} / ${p3(l.d.cap)}` : "-"}</td>
+                <td className={l.d.status === "consistent" ? "gain" : l.d.status === "unknown" ? "muted" : "warn"}>{CHECK_LABEL[l.d.status as Check]}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {legs.map((l) => <p key={l.name} className="note" style={{ margin: "8px 0 0" }}>{say(l)}</p>)}
+      <p className="note" style={{ margin: "8px 0 0" }}>
+        Price gap between the two exchanges now: <b>{p3(basis)}</b> ({legs[1].name} against {legs[0].name}). When you hold the hedge you also carry this gap: if it narrows you gain on top of funding, if it widens you lose even while collecting funding.
+      </p>
+      {shortInterval && <p className="note" style={{ margin: "8px 0 0" }}>{BYBIT_FORMULA_NOTE}</p>}
+      {gapHistory.length >= 3 ? (
+        <div style={{ width: "100%", height: 240, marginTop: 10 }}>
+          <ResponsiveContainer>
+            <ComposedChart data={gapHistory}>
+              <CartesianGrid stroke="var(--line)" vertical={false} />
+              <XAxis dataKey="t" stroke="var(--muted)" fontSize={11} minTickGap={40} />
+              <YAxis stroke="var(--muted)" fontSize={12} tickFormatter={(v) => `${Number(v).toFixed(2)}%`} width={56} />
+              <Tooltip formatter={(v: any) => `${Number(v).toFixed(3)}%`} contentStyle={{ background: "var(--panel)", border: "1px solid var(--line)", color: "var(--ink)" }} />
+              <Legend />
+              <Line type="monotone" dataKey="gap" name={`${legs[1].name} price vs ${legs[0].name} price`} stroke="var(--gain)" strokeWidth={2} dot={false} connectNulls />
+              <Line type="monotone" dataKey="left_prem" name={`${legs[0].name} premium vs its index`} stroke="#6b8afd" strokeWidth={1.5} dot={false} connectNulls />
+              <Line type="monotone" dataKey="peer_prem" name={`${legs[1].name} premium vs its index`} stroke="#a66bd6" strokeWidth={1.5} dot={false} connectNulls />
+            </ComposedChart>
+          </ResponsiveContainer>
+        </div>
+      ) : <p className="muted" style={{ margin: "10px 0 0" }}>Price-gap history builds up from each live refresh (one point per hour). Run the live refresh a few times to see the chart.</p>}
     </div>
   );
 }

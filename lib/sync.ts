@@ -74,13 +74,16 @@ export async function refreshPairs() {
 
 /** One bulk call per exchange -> live rate, mark price, volume for every common pair. */
 export async function refreshLive() {
-  const pairs = await q(`SELECT base,binance_symbol,delta_symbol,coindcx_pair,bybit_symbol FROM pair_map WHERE active`);
+  const pairs = await q(`SELECT base,binance_symbol,delta_symbol,coindcx_pair,bybit_symbol,b_mult,d_mult,y_mult FROM pair_map WHERE active`);
   const warnings: string[] = [];
-  const [bl, dl, yl, cl] = await Promise.all([
+  const [bl, dl, yl, cl, ys] = await Promise.all([
     binanceLive(), deltaTickers(),
     bybitLive().catch((e) => { warnings.push(`Bybit live rates failed: ${String(e.message).slice(0, 160)}`); return null; }),
     coindcxPrices().catch(() => new Map()),
+    bybitSymbols().catch(() => [] as Awaited<ReturnType<typeof bybitSymbols>>),   // funding caps
   ]);
+  const yCaps = new Map(ys.map((x) => [x.symbol, x]));
+  const fin = (v: any) => (v != null && Number.isFinite(Number(v)) ? Number(v) : null);
   // If Bybit failed, keep the last saved Bybit numbers rather than blanking the tab.
   const oldY = new Map<string, any>();
   if (!yl) for (const o of await q(`SELECT base,y_rate,y_interval,y_mark,y_vol,y_oi FROM live_snapshot WHERE y_rate IS NOT NULL`)) oldY.set(o.base, o);
@@ -88,7 +91,7 @@ export async function refreshLive() {
   // The real Delta schedule (8h or 4h) is detected while syncing history. Use the newest stored interval, not one global setting.
   const dMap = new Map<string, number>();
   for (const o of await q(`SELECT DISTINCT ON (base) base, interval_hours FROM funding_history WHERE exchange='delta' ORDER BY base, ts DESC`)) dMap.set(o.base, Number(o.interval_hours));
-  const rows: any[] = [];
+  const rows: any[] = [], gaps: any[] = [];
   for (const p of pairs) {
     const b = bl.get(p.binance_symbol), d = p.delta_symbol ? dl.get(p.delta_symbol) : null;
     if (!b) continue;
@@ -99,18 +102,38 @@ export async function refreshLive() {
       b_mark: b.mark, d_mark: d?.mark ?? null, b_vol: b.vol, d_vol: d?.vol ?? null, d_oi: d?.oi ?? null,
       c_rate: c ? c.rate : null, c_mark: c ? c.mark : null,
       y_rate: y ? y.rate : null, y_interval: y ? y.interval : null, y_mark: y ? y.mark : null, y_vol: y ? y.vol : null, y_oi: y ? y.oi : null,
+      b_index: fin(b.index), d_index: fin(d?.index), y_index: fin((y as any)?.index),
+      b_cap: fin(b.cap), b_floor: fin(b.floor), y_cap: fin(yCaps.get(p.bybit_symbol)?.capUp), y_floor: fin(yCaps.get(p.bybit_symbol)?.capLow),
     });
+    // Premium of each perpetual against its OWN index, and the price gap between exchanges (per coin, using the name multipliers).
+    const prem = (m: any, i: any) => (fin(m) && fin(i) ? m / i - 1 : null);
+    const bp = b.mark / (p.b_mult ?? 1), dp = d ? d.mark / (p.d_mult ?? 1) : NaN, yp = y ? (y as any).mark / (p.y_mult ?? 1) : NaN;
+    gaps.push({ base: p.base, b_prem: prem(b.mark, b.index), d_prem: prem(d?.mark, d?.index), y_prem: prem((y as any)?.mark, (y as any)?.index),
+      gap_d: Number.isFinite(dp) && bp ? dp / bp - 1 : null, gap_y: Number.isFinite(yp) && bp ? yp / bp - 1 : null });
   }
   await q(
-    `INSERT INTO live_snapshot(base,b_rate,d_rate,b_interval,d_interval,b_mark,d_mark,b_vol,d_vol,d_oi,c_rate,c_mark,y_rate,y_interval,y_mark,y_vol,y_oi,ts)
-     SELECT base,b_rate,d_rate,b_interval,d_interval,b_mark,d_mark,b_vol,d_vol,d_oi,c_rate,c_mark,y_rate,y_interval,y_mark,y_vol,y_oi,now()
+    `INSERT INTO live_snapshot(base,b_rate,d_rate,b_interval,d_interval,b_mark,d_mark,b_vol,d_vol,d_oi,c_rate,c_mark,y_rate,y_interval,y_mark,y_vol,y_oi,b_index,d_index,y_index,b_cap,b_floor,y_cap,y_floor,ts)
+     SELECT base,b_rate,d_rate,b_interval,d_interval,b_mark,d_mark,b_vol,d_vol,d_oi,c_rate,c_mark,y_rate,y_interval,y_mark,y_vol,y_oi,b_index,d_index,y_index,b_cap,b_floor,y_cap,y_floor,now()
      FROM jsonb_to_recordset($1::jsonb) AS x(base text,b_rate float8,d_rate float8,b_interval real,d_interval real,
-       b_mark float8,d_mark float8,b_vol float8,d_vol float8,d_oi float8,c_rate float8,c_mark float8,y_rate float8,y_interval real,y_mark float8,y_vol float8,y_oi float8)
+       b_mark float8,d_mark float8,b_vol float8,d_vol float8,d_oi float8,c_rate float8,c_mark float8,y_rate float8,y_interval real,y_mark float8,y_vol float8,y_oi float8,
+       b_index float8,d_index float8,y_index float8,b_cap float8,b_floor float8,y_cap float8,y_floor float8)
      ON CONFLICT (base) DO UPDATE SET b_rate=EXCLUDED.b_rate,d_rate=EXCLUDED.d_rate,b_interval=EXCLUDED.b_interval,
        d_interval=EXCLUDED.d_interval,b_mark=EXCLUDED.b_mark,d_mark=EXCLUDED.d_mark,b_vol=EXCLUDED.b_vol,
-       d_vol=EXCLUDED.d_vol,d_oi=EXCLUDED.d_oi,c_rate=EXCLUDED.c_rate,c_mark=EXCLUDED.c_mark,y_rate=EXCLUDED.y_rate,y_interval=EXCLUDED.y_interval,y_mark=EXCLUDED.y_mark,y_vol=EXCLUDED.y_vol,y_oi=EXCLUDED.y_oi,ts=now()`,
+       d_vol=EXCLUDED.d_vol,d_oi=EXCLUDED.d_oi,c_rate=EXCLUDED.c_rate,c_mark=EXCLUDED.c_mark,y_rate=EXCLUDED.y_rate,y_interval=EXCLUDED.y_interval,y_mark=EXCLUDED.y_mark,y_vol=EXCLUDED.y_vol,y_oi=EXCLUDED.y_oi,
+       b_index=EXCLUDED.b_index,d_index=EXCLUDED.d_index,y_index=EXCLUDED.y_index,b_cap=EXCLUDED.b_cap,b_floor=EXCLUDED.b_floor,y_cap=EXCLUDED.y_cap,y_floor=EXCLUDED.y_floor,ts=now()`,
     [JSON.stringify(rows)],
   );
+  // Price-gap history: at most one point per coin per hour, kept 120 days. Lets you see whether a funding gap goes with a real price gap.
+  if (gaps.length) {
+    await q(
+      `INSERT INTO price_gap_history(base,ts,b_prem,d_prem,y_prem,gap_d,gap_y)
+       SELECT x.base, now(), x.b_prem, x.d_prem, x.y_prem, x.gap_d, x.gap_y
+         FROM jsonb_to_recordset($1::jsonb) AS x(base text,b_prem float8,d_prem float8,y_prem float8,gap_d float8,gap_y float8)
+        WHERE NOT EXISTS (SELECT 1 FROM price_gap_history g WHERE g.base=x.base AND g.ts > now() - interval '55 minutes')`,
+      [JSON.stringify(gaps)],
+    );
+    await q(`DELETE FROM price_gap_history WHERE ts < now() - interval '120 days'`);
+  }
   return { count: rows.length, warnings };
 }
 

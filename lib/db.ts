@@ -25,6 +25,8 @@ export function ensureSchema(): Promise<void> {
                  AND to_regclass('bybit_wf_obs') IS NOT NULL AND to_regclass('bybit_wf_summary') IS NOT NULL
                  AND to_regclass('live_snapshot') IS NOT NULL
                  AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='live_snapshot' AND column_name='y_oi')
+                 AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='live_snapshot' AND column_name='y_floor')
+                 AND to_regclass('price_gap_history') IS NOT NULL
                  AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='pair_map' AND column_name='y_interval')
                  AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='pair_stats' AND column_name='ret365')
                  AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='bybit_pair_stats' AND column_name='ret365')
@@ -129,6 +131,15 @@ export const SCHEMA = [
   `ALTER TABLE live_snapshot ADD COLUMN IF NOT EXISTS y_mark double precision`,
   `ALTER TABLE live_snapshot ADD COLUMN IF NOT EXISTS y_vol double precision`,
   `ALTER TABLE live_snapshot ADD COLUMN IF NOT EXISTS y_oi double precision`,
+  `ALTER TABLE live_snapshot ADD COLUMN IF NOT EXISTS b_index double precision`,
+  `ALTER TABLE live_snapshot ADD COLUMN IF NOT EXISTS d_index double precision`,
+  `ALTER TABLE live_snapshot ADD COLUMN IF NOT EXISTS y_index double precision`,
+  `ALTER TABLE live_snapshot ADD COLUMN IF NOT EXISTS b_cap double precision`,
+  `ALTER TABLE live_snapshot ADD COLUMN IF NOT EXISTS b_floor double precision`,
+  `ALTER TABLE live_snapshot ADD COLUMN IF NOT EXISTS y_cap double precision`,
+  `ALTER TABLE live_snapshot ADD COLUMN IF NOT EXISTS y_floor double precision`,
+  `CREATE TABLE IF NOT EXISTS price_gap_history (base text NOT NULL, ts timestamptz NOT NULL DEFAULT now(), b_prem double precision, d_prem double precision, y_prem double precision, gap_d double precision, gap_y double precision)`,
+  `CREATE INDEX IF NOT EXISTS price_gap_idx ON price_gap_history(base, ts)`,
   `CREATE TABLE IF NOT EXISTS bybit_pair_stats (LIKE pair_stats INCLUDING ALL)`,
   `CREATE TABLE IF NOT EXISTS bybit_delta_pair_stats (LIKE pair_stats INCLUDING ALL)`,
   `ALTER TABLE bybit_pair_stats ADD COLUMN IF NOT EXISTS ret1 double precision`,

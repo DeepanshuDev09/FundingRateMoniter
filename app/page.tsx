@@ -2,6 +2,13 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { cls, dirLabel, freshness, pct, signedPct, usd } from "@/lib/format";
+import { CHECK_LABEL, type Check } from "@/lib/diagnose";
+
+/** Does the funding rate match the price gap that is visible on that exchange? (see the pair page for details) */
+function CheckBadge({ c }: { c?: Check }) {
+  const k: Check = c ?? "unknown";
+  return <span className={k === "consistent" ? "gain" : k === "unknown" ? "muted" : "warn"} title="Funding is built from each exchange's own price premium. This compares the two.">{CHECK_LABEL[k]}</span>;
+}
 import { Pager, usePaged } from "@/components/Pager";
 
 type Row = any;
@@ -19,6 +26,7 @@ const COLS: { key: string; label: string; num?: boolean; get: (r: Row) => any; r
   { key: "dyn_net90", label: "Flip 3-mo net", num: true, get: (r) => r.dyn_net90, render: (r) => <span className={cls(r.dyn_net90)}>{signedPct(r.dyn_net90)}</span> },
   { key: "dyn_net365", label: "Flip 1y net", num: true, get: (r) => r.dyn_net365, render: (r) => <span className={cls(r.dyn_net365)}>{signedPct(r.dyn_net365)}</span> },
   { key: "dyn_flips", label: "Flips (1y)", num: true, get: (r) => r.dyn_flips, render: (r) => r.dyn_flips ?? "-" },
+  { key: "d_check", label: "Delta funding vs its price gap", get: (r) => r.d_diag?.status, render: (r) => <CheckBadge c={r.d_diag?.status} /> },
   { key: "apr", label: "30d APR", num: true, get: (r) => r.apr, render: (r) => pct(r.apr, 0) },
   { key: "trend3_apr", label: "3d APR", num: true, get: (r) => r.trend3_apr,
     render: (r) => <span className={r.trend3_apr != null && r.apr != null && r.trend3_apr < r.apr * 0.5 ? "warn" : ""}>{pct(r.trend3_apr, 0)}</span> },
@@ -209,6 +217,7 @@ const BYBIT_COLS: { key: string; label: string; get: (r: Row) => any; render: (r
   { key: "y_dyn_net30", label: "Flip 30d net", get: r => r.y_dyn_net30, render: r => <span className={cls(r.y_dyn_net30)}>{signedPct(r.y_dyn_net30)}</span> },
   { key: "y_dyn_net90", label: "Flip 3-mo net", get: r => r.y_dyn_net90, render: r => <span className={cls(r.y_dyn_net90)}>{signedPct(r.y_dyn_net90)}</span> },
   { key: "y_dyn_flips", label: "Flips (1y)", get: r => r.y_dyn_flips, render: r => r.y_dyn_flips ?? "-" },
+  { key: "y_check", label: "Bybit funding vs its price gap", get: r => r.y_diag?.status, render: r => <CheckBadge c={r.y_diag?.status} /> },
   { key: "y_apr", label: "30d APR", get: r => r.y_apr, render: r => pct(r.y_apr, 0) },
   { key: "y_consistency", label: "Positive days", get: r => r.y_consistency, render: r => pct(r.y_consistency, 0) },
   { key: "y_basis", label: "Basis", get: r => r.y_basis, render: r => signedPct(r.y_basis) },

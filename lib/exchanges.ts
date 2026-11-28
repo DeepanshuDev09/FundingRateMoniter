@@ -39,9 +39,11 @@ export async function binanceLive() {
   ]);
   const vol = new Map<string, number>(tk.map((t: any) => [t.symbol, Number(t.quoteVolume)]));
   const iv = new Map<string, number>(fi.map((f: any) => [f.symbol, Number(f.fundingIntervalHours)]));
-  const out = new Map<string, { rate: number; mark: number; vol: number; interval: number }>();
+  const caps = new Map<string, { cap: number; floor: number }>(fi.map((f: any) => [f.symbol, { cap: Number(f.adjustedFundingRateCap), floor: Number(f.adjustedFundingRateFloor) }]));
+  const out = new Map<string, { rate: number; mark: number; index: number; cap?: number; floor?: number; vol: number; interval: number }>();
   for (const p of pi) {
     out.set(p.symbol, {
+      index: Number(p.indexPrice), cap: caps.get(p.symbol)?.cap, floor: caps.get(p.symbol)?.floor,
       rate: Number(p.lastFundingRate), mark: Number(p.markPrice),
       vol: vol.get(p.symbol) ?? 0, interval: iv.get(p.symbol) ?? 8,
     });
@@ -78,13 +80,13 @@ async function bybitGet(path: string): Promise<any> {
 const num = (v: any) => (v === "" || v == null ? NaN : Number(v));
 
 export async function bybitSymbols() {
-  const out: { symbol: string; base: string; interval: number }[] = [];
+  const out: { symbol: string; base: string; interval: number; capUp: number; capLow: number }[] = [];
   let cursor = "";
   do {
     const d = await bybitGet(`/v5/market/instruments-info?category=linear&limit=1000${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`);
     out.push(...(d.result?.list ?? [])
       .filter((s: any) => s.contractType === "LinearPerpetual" && s.quoteCoin === "USDT" && s.status === "Trading")
-      .map((s: any) => ({ symbol: s.symbol as string, base: s.baseCoin as string, interval: Number(s.fundingInterval) / 60 || 8 })));
+      .map((s: any) => ({ symbol: s.symbol as string, base: s.baseCoin as string, interval: Number(s.fundingInterval) / 60 || 8, capUp: num(s.upperFundingRate), capLow: num(s.lowerFundingRate) })));
     cursor = d.result?.nextPageCursor ?? "";
   } while (cursor);
   return out;
@@ -92,12 +94,12 @@ export async function bybitSymbols() {
 
 export async function bybitLive() {
   const d = await bybitGet(`/v5/market/tickers?category=linear`);
-  const out = new Map<string, { rate: number; mark: number; vol: number; oi: number; interval: number }>();
+  const out = new Map<string, { rate: number; mark: number; index: number; vol: number; oi: number; interval: number }>();
   for (const t of d.result?.list ?? []) {
     // Number("") is 0, which would look like a real 0% funding rate, so empty strings are treated as missing.
     const rate = num(t.fundingRate), mark = num(t.markPrice);
     if (!Number.isFinite(rate) || !Number.isFinite(mark)) continue;
-    out.set(t.symbol, { rate, mark, vol: num(t.turnover24h) || 0, oi: num(t.openInterestValue) || 0, interval: Number(t.fundingIntervalHour) || 8 });
+    out.set(t.symbol, { rate, mark, index: num(t.indexPrice), vol: num(t.turnover24h) || 0, oi: num(t.openInterestValue) || 0, interval: Number(t.fundingIntervalHour) || 8 });
   }
   return out;
 }
@@ -168,13 +170,14 @@ export async function deltaProducts() {
 
 export async function deltaTickers() {
   const d = await get(`${DELTA}/v2/tickers?contract_types=perpetual_futures`);
-  const out = new Map<string, { rate: number; mark: number; vol: number; oi: number }>();
+  const out = new Map<string, { rate: number; mark: number; index: number; vol: number; oi: number }>();
   for (const t of d.result as any[]) {
     const rate = dRate(Number(t.funding_rate));
     if (!Number.isFinite(rate)) continue;
     out.set(t.symbol, {
       rate,
       mark: Number(t.mark_price),
+      index: Number(t.spot_price),   // Delta's index price
       vol: Number(t.turnover_usd ?? 0),
       oi: Number(t.oi_value_usd ?? 0),
     });
